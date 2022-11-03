@@ -618,7 +618,10 @@ def _cov_torch(tensor, rowvar=True, bias=False):
     """
     tensor = tensor if rowvar else tensor.transpose(-1, -2)
     tensor = tensor - tensor.mean(dim=-1, keepdim=True)
-    factor = 1 / (tensor.shape[-1] - int(not bool(bias)))
+    if tensor.shape[-1] - int(not bool(bias)) == 0:
+        factor = 1
+    else:
+        factor = 1 / (tensor.shape[-1] - int(not bool(bias)))
     return factor * tensor @ tensor.transpose(-1, -2)
 
 
@@ -633,9 +636,12 @@ def _nancov_torch(x):
     assert len(x.shape) == 3, f'Shape of input should be (batch_size, row_num, feat_dim), but got {x.shape}'
     b, rownum, feat_dim = x.shape
     nan_mask = torch.isnan(x).any(dim=2, keepdim=True)
-    x_no_nan = x.masked_select(~nan_mask).reshape(b, -1, feat_dim)
-    cov_x = _cov_torch(x_no_nan, rowvar=False)
-    return cov_x
+    cov_x = []
+    for i in range(b):
+        x_no_nan = x[i].masked_select(~nan_mask[i]).reshape(-1, feat_dim)
+
+        cov_x.append(_cov_torch(x_no_nan, rowvar=False))
+    return torch.stack(cov_x)
 
 
 def _nanmean_torch(v, *args, inplace=False, **kwargs):
