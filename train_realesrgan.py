@@ -12,27 +12,23 @@
 # limitations under the License.
 # ==============================================================================
 import os
-import random
-import shutil
 import time
-from enum import Enum
-from typing import Any
 
-import numpy as np
 import torch
 from torch import nn
 from torch import optim
 from torch.cuda import amp
-from torch.nn import functional as F, BCEWithLogitsLoss
 from torch.optim import lr_scheduler
+from torch.optim.swa_utils import AveragedModel
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-import config
 import imgproc
-from dataset import CUDAPrefetcher, TrainValidImageDataset, TestImageDataset
+import model
+import realesrgan_config
+from dataset import CUDAPrefetcher, DegeneratedImageDataset, PairedImageDataset
 from image_quality_assessment import NIQE
-from model import Generator, Discriminator, EMA, ContentLoss
+from utils import load_state_dict, make_directory, save_checkpoint, validate, AverageMeter, ProgressMeter
 
 
 def main():
@@ -42,97 +38,83 @@ def main():
     # Initialize training to generate network evaluation indicators
     best_niqe = 100.0
 
-    train_prefetcher, valid_prefetcher, test_prefetcher = load_dataset()
+    degenerated_train_prefetcher, paired_test_prefetcher = load_dataset()
     print("Load dataset successfully.")
 
-    discriminator, generator, ema_model = build_model()
-    print("Build all model successfully.")
+    d_model, g_model, ema_g_model = build_model()
+    print(f"Build `{realesrgan_config.d_model_arch_name}` model "
+          f"`{realesrgan_config.g_model_arch_name}` model successfully.")
 
     pixel_criterion, content_criterion, adversarial_criterion = define_loss()
     print("Define all loss functions successfully.")
 
-    d_optimizer, g_optimizer = define_optimizer(discriminator, generator)
+    d_optimizer, g_optimizer = define_optimizer(d_model, g_model)
     print("Define all optimizer functions successfully.")
 
     d_scheduler, g_scheduler = define_scheduler(d_optimizer, g_optimizer)
     print("Define all optimizer scheduler functions successfully.")
 
-    if config.resume:
-        print("Loading RealESRNet model weights")
-        # Load checkpoint model
-        checkpoint = torch.load(config.resume, map_location=lambda storage, loc: storage)
-        generator.load_state_dict(checkpoint["state_dict"])
-        print("Loaded RealESRNet model weights.")
+    # Load the pre-trained model weights and fine-tune the model
+    print("Check whether to load pretrained d model weights...")
+    if realesrgan_config.pretrained_d_model_weights_path:
+        d_model = load_state_dict(d_model, realesrgan_config.pretrained_d_model_weights_path)
+        print(f"Loaded `{realesrgan_config.pretrained_d_model_weights_path}` pretrained model weights successfully.")
+    else:
+        print("Pretrained d model weights not found.")
+    print("Check whether to load pretrained g model weights...")
+    if realesrgan_config.pretrained_g_model_weights_path:
+        g_model = load_state_dict(g_model, realesrgan_config.pretrained_g_model_weights_path)
+        print(f"Loaded `{realesrgan_config.pretrained_g_model_weights_path}` pretrained model weights successfully.")
+    else:
+        print("Pretrained g model weights not found.")
 
-    print("Check whether the pretrained discriminator model is restored...")
-    if config.resume_d:
-        # Load checkpoint model
-        checkpoint = torch.load(config.resume_d, map_location=lambda storage, loc: storage)
-        # Restore the parameters in the training node to this point
-        start_epoch = checkpoint["epoch"]
-        best_niqe = checkpoint["best_niqe"]
-        # Load checkpoint state dict. Extract the fitted model weights
-        model_state_dict = discriminator.state_dict()
-        new_state_dict = {k: v for k, v in checkpoint["state_dict"].items() if k in model_state_dict.keys()}
-        # Overwrite the pretrained model weights to the current model
-        model_state_dict.update(new_state_dict)
-        discriminator.load_state_dict(model_state_dict)
-        # Load the optimizer model
-        d_optimizer.load_state_dict(checkpoint["optimizer"])
-        # Load the scheduler model
-        d_scheduler.load_state_dict(checkpoint["scheduler"])
-        print("Loaded pretrained discriminator model weights.")
+    # Load the last training interruption node
+    print("Check whether the resumed model is restored...")
+    if realesrgan_config.resume_d_model_weights_path:
+        g_model, _, start_epoch, best_psnr, best_ssim, optimizer, scheduler = load_state_dict(
+            d_model,
+            realesrgan_config.resume_d_model_weights_path,
+            None,
+            d_optimizer,
+            d_scheduler,
+            "resume")
+        print("Loaded resume d model weights.")
+    else:
+        print("Resume training d model not found. Start training from scratch.")
+    print("Check whether the resume g model is restored...")
+    if realesrgan_config.resume_g_model_weights_path:
+        g_model, ema_g_model, start_epoch, best_psnr, best_ssim, optimizer, scheduler = load_state_dict(
+            g_model,
+            realesrgan_config.resume_g_model_weights_path,
+            ema_g_model,
+            g_optimizer,
+            g_scheduler,
+            "resume")
+        print("Loaded resume g model weights.")
+    else:
+        print("Resume training g model not found. Start training from scratch.")
 
-    print("Check whether the pretrained generator model is restored...")
-    if config.resume_g:
-        # Load checkpoint model
-        checkpoint = torch.load(config.resume_g, map_location=lambda storage, loc: storage)
-        # Restore the parameters in the training node to this point
-        start_epoch = checkpoint["epoch"]
-        best_niqe = checkpoint["best_niqe"]
-        # Load model state dict. Extract the fitted model weights
-        model_state_dict = generator.state_dict()
-        state_dict = {k: v for k, v in checkpoint["state_dict"].items() if k in model_state_dict.keys()}
-        # Overwrite the model weights to the current model (base model)
-        model_state_dict.update(state_dict)
-        generator.load_state_dict(model_state_dict)
-        # Load ema model state dict. Extract the fitted model weights
-        ema_model_state_dict = ema_model.state_dict()
-        ema_state_dict = {k: v for k, v in checkpoint["ema_state_dict"].items() if k in ema_model_state_dict.keys()}
-        # Overwrite the model weights to the current model (ema model)
-        ema_model_state_dict.update(ema_state_dict)
-        ema_model.load_state_dict(ema_model_state_dict)
-        # Load the optimizer model
-        g_optimizer.load_state_dict(checkpoint["optimizer"])
-        # Load the scheduler model
-        g_scheduler.load_state_dict(checkpoint["scheduler"])
-        print("Loaded pretrained generator model weights.")
+    # Model weight training save address
+    samples_dir = os.path.join("samples", realesrgan_config.exp_name)
+    results_dir = os.path.join("results", realesrgan_config.exp_name)
+    make_directory(samples_dir)
+    make_directory(results_dir)
 
-    # Create a folder of super-resolution experiment results
-    samples_dir = os.path.join("samples", config.exp_name)
-    results_dir = os.path.join("results", config.exp_name)
-    if not os.path.exists(samples_dir):
-        os.makedirs(samples_dir)
-    if not os.path.exists(results_dir):
-        os.makedirs(results_dir)
+    # create model training log
+    writer = SummaryWriter(os.path.join("samples", "logs", realesrgan_config.exp_name))
 
-    # Create training process log file
-    writer = SummaryWriter(os.path.join("samples", "logs", config.exp_name))
-
-    # Initialize the gradient scaler.
+    # Initialize the mixed precision method
     scaler = amp.GradScaler()
 
-    # Create an IQA evaluation model
-    niqe_model = NIQE(config.upscale_factor, config.niqe_model_path)
+    # Initialize the image clarity evaluation method
+    niqe_model = NIQE(realesrgan_config.upscale_factor, realesrgan_config.niqe_model_path)
+    niqe_model = niqe_model.to(device=realesrgan_config.device)
 
-    # Transfer the IQA model to the specified device
-    niqe_model = niqe_model.to(device=config.device)
-
-    for epoch in range(start_epoch, config.epochs):
-        train(discriminator,
-              generator,
-              ema_model,
-              train_prefetcher,
+    for epoch in range(start_epoch, realesrgan_config.epochs):
+        train(d_model,
+              g_model,
+              ema_g_model,
+              degenerated_train_prefetcher,
               pixel_criterion,
               content_criterion,
               adversarial_criterion,
@@ -140,197 +122,218 @@ def main():
               g_optimizer,
               epoch,
               scaler,
-              writer)
-        _ = validate(generator, ema_model, valid_prefetcher, epoch, writer, niqe_model, "Valid")
-        niqe = validate(generator, ema_model, test_prefetcher, epoch, writer, niqe_model, "Test")
+              writer,
+              realesrgan_config.device,
+              realesrgan_config.train_print_frequency)
+        niqe = validate(g_model,
+                        paired_test_prefetcher,
+                        epoch,
+                        writer,
+                        niqe_model,
+                        realesrgan_config.device,
+                        realesrgan_config.test_print_frequency,
+                        "Test")
         print("\n")
 
-        # Update LR
+        # Update the learning rate after each training epoch
         d_scheduler.step()
         g_scheduler.step()
 
-        # Automatically save the model with the highest index
+        # Automatically save model weights
         is_best = niqe < best_niqe
+        is_last = (epoch + 1) == realesrgan_config.epochs
         best_niqe = min(niqe, best_niqe)
-        torch.save({"epoch": epoch + 1,
-                    "best_niqe": best_niqe,
-                    "state_dict": discriminator.state_dict(),
-                    "optimizer": d_optimizer.state_dict(),
-                    "scheduler": d_scheduler.state_dict()},
-                   os.path.join(samples_dir, f"d_epoch_{epoch + 1}.pth.tar"))
-        torch.save({"epoch": epoch + 1,
-                    "best_niqe": best_niqe,
-                    "state_dict": generator.state_dict(),
-                    "ema_state_dict": ema_model.state_dict(),
-                    "optimizer": g_optimizer.state_dict(),
-                    "scheduler": g_scheduler.state_dict()},
-                   os.path.join(samples_dir, f"g_epoch_{epoch + 1}.pth.tar"))
-        if is_best:
-            shutil.copyfile(os.path.join(samples_dir, f"d_epoch_{epoch + 1}.pth.tar"),
-                            os.path.join(results_dir, "d_best.pth.tar"))
-            shutil.copyfile(os.path.join(samples_dir, f"g_epoch_{epoch + 1}.pth.tar"),
-                            os.path.join(results_dir, "g_best.pth.tar"))
-        if (epoch + 1) == config.epochs:
-            shutil.copyfile(os.path.join(samples_dir, f"d_epoch_{epoch + 1}.pth.tar"),
-                            os.path.join(results_dir, "d_last.pth.tar"))
-            shutil.copyfile(os.path.join(samples_dir, f"g_epoch_{epoch + 1}.pth.tar"),
-                            os.path.join(results_dir, "g_last.pth.tar"))
+        save_checkpoint({"epoch": epoch + 1,
+                         "best_niqe": best_niqe,
+                         "state_dict": d_model.state_dict(),
+                         "optimizer": d_optimizer.state_dict(),
+                         "scheduler": d_scheduler.state_dict()},
+                        f"d_epoch_{epoch + 1}.pth.tar",
+                        samples_dir,
+                        results_dir,
+                        "d_best.pth.tar",
+                        "d_last.pth.tar",
+                        is_best,
+                        is_last)
+
+        save_checkpoint({"epoch": epoch + 1,
+                         "best_niqe": best_niqe,
+                         "state_dict": g_model.state_dict(),
+                         "ema_state_dict": ema_g_model.state_dict(),
+                         "optimizer": g_optimizer.state_dict(),
+                         "scheduler": g_scheduler.state_dict()},
+                        f"g_epoch_{epoch + 1}.pth.tar",
+                        samples_dir,
+                        results_dir,
+                        "g_best.pth.tar",
+                        "g_last.pth.tar",
+                        is_best,
+                        is_last)
 
 
-def load_dataset() -> [CUDAPrefetcher, CUDAPrefetcher, CUDAPrefetcher]:
-    # Load train, test and valid datasets
-    train_datasets = TrainValidImageDataset(config.train_image_dir,
-                                            config.image_size,
-                                            config.upscale_factor,
-                                            "Train",
-                                            config.degradation_model_parameters_dict)
-    valid_datasets = TrainValidImageDataset(config.valid_image_dir,
-                                            config.image_size,
-                                            config.upscale_factor,
-                                            "Valid",
-                                            config.degradation_model_parameters_dict)
-    test_datasets = TestImageDataset(config.test_lr_image_dir, config.test_hr_image_dir)
+def load_dataset() -> [CUDAPrefetcher, CUDAPrefetcher]:
+    """Load training dataset"""
+    degenerated_train_datasets = DegeneratedImageDataset(realesrgan_config.degradation_train_gt_images_dir,
+                                                         realesrgan_config.degradation_model_parameters_dict)
+    paired_test_datasets = PairedImageDataset(realesrgan_config.degradation_test_gt_images_dir,
+                                              realesrgan_config.degradation_test_lr_images_dir)
+    # generate dataset iterator
+    degenerated_train_dataloader = DataLoader(degenerated_train_datasets,
+                                              batch_size=realesrgan_config.batch_size,
+                                              shuffle=True,
+                                              num_workers=realesrgan_config.num_workers,
+                                              pin_memory=True,
+                                              drop_last=True,
+                                              persistent_workers=True)
+    paired_test_dataloader = DataLoader(paired_test_datasets,
+                                        batch_size=1,
+                                        shuffle=False,
+                                        num_workers=1,
+                                        pin_memory=True,
+                                        drop_last=False,
+                                        persistent_workers=True)
 
-    # Generator all dataloader
-    train_dataloader = DataLoader(train_datasets,
-                                  batch_size=config.batch_size,
-                                  shuffle=True,
-                                  num_workers=config.num_workers,
-                                  pin_memory=True,
-                                  drop_last=True,
-                                  persistent_workers=True)
-    valid_dataloader = DataLoader(valid_datasets,
-                                  batch_size=1,
-                                  shuffle=False,
-                                  num_workers=1,
-                                  pin_memory=True,
-                                  drop_last=False,
-                                  persistent_workers=True)
-    test_dataloader = DataLoader(test_datasets,
-                                 batch_size=1,
-                                 shuffle=False,
-                                 num_workers=1,
-                                 pin_memory=True,
-                                 drop_last=False,
-                                 persistent_workers=True)
+    # Replace the data set iterator with CUDA to speed up
+    degenerated_train_prefetcher = CUDAPrefetcher(degenerated_train_dataloader, realesrgan_config.device)
+    paired_test_prefetcher = CUDAPrefetcher(paired_test_dataloader, realesrgan_config.device)
 
-    # Place all data on the preprocessing data loader
-    train_prefetcher = CUDAPrefetcher(train_dataloader, config.device)
-    valid_prefetcher = CUDAPrefetcher(valid_dataloader, config.device)
-    test_prefetcher = CUDAPrefetcher(test_dataloader, config.device)
-
-    return train_prefetcher, valid_prefetcher, test_prefetcher
+    return degenerated_train_prefetcher, paired_test_prefetcher
 
 
 def build_model() -> [nn.Module, nn.Module, nn.Module]:
-    discriminator = Discriminator()
-    generator = Generator(config.in_channels, config.out_channels, config.upscale_factor)
+    """Initialize the model"""
+    d_model = model.__dict__[realesrgan_config.d_model_arch_name](
+        in_channels=realesrgan_config.d_in_channels,
+        out_channels=realesrgan_config.d_out_channels,
+        channels=realesrgan_config.d_channels,
+    )
+    g_model = model.__dict__[realesrgan_config.g_model_arch_name](
+        in_channels=realesrgan_config.g_in_channels,
+        out_channels=realesrgan_config.g_out_channels,
+        channels=realesrgan_config.g_channels,
+        growth_channels=realesrgan_config.g_growth_channels,
+        num_rrdb=realesrgan_config.g_num_rrdb,
+    )
+    d_model = d_model.to(device=realesrgan_config.device)
+    g_model = g_model.to(device=realesrgan_config.device)
 
-    # Transfer to CUDA
-    discriminator = discriminator.to(device=config.device)
-    generator = generator.to(device=config.device)
+    # Generate an exponential average model based on the generator to stabilize model training
+    ema_avg = lambda averaged_model_parameter, model_parameter, num_averaged: (
+                                                                                          1 - realesrgan_config.model_ema_decay) * averaged_model_parameter + realesrgan_config.model_ema_decay * model_parameter
+    ema_g_model = AveragedModel(g_model, avg_fn=ema_avg)
 
-    # Create an Exponential Moving Average Model
-    ema_model = EMA(generator, config.ema_model_weight_decay)
-    ema_model = ema_model.to(device=config.device)
-    ema_model.register()
-
-    return discriminator, generator, ema_model
+    return d_model, g_model, ema_g_model
 
 
-def define_loss() -> [nn.L1Loss, ContentLoss, nn.BCEWithLogitsLoss]:
+def define_loss() -> [nn.L1Loss, model.ContentLoss, nn.BCEWithLogitsLoss]:
     pixel_criterion = nn.L1Loss()
-    content_criterion = ContentLoss(config.feature_model_extractor_nodes,
-                                    config.feature_model_normalize_mean,
-                                    config.feature_model_normalize_std)
+    content_criterion = model.ContentLoss(realesrgan_config.feature_model_extractor_nodes,
+                                          realesrgan_config.feature_model_normalize_mean,
+                                          realesrgan_config.feature_model_normalize_std)
     adversarial_criterion = nn.BCEWithLogitsLoss()
 
     # Transfer to CUDA
-    pixel_criterion = pixel_criterion.to(device=config.device)
-    content_criterion = content_criterion.to(device=config.device)
-    adversarial_criterion = adversarial_criterion.to(device=config.device)
+    pixel_criterion = pixel_criterion.to(device=realesrgan_config.device)
+    content_criterion = content_criterion.to(device=realesrgan_config.device)
+    adversarial_criterion = adversarial_criterion.to(device=realesrgan_config.device)
 
     return pixel_criterion, content_criterion, adversarial_criterion
 
 
-def define_optimizer(discriminator: nn.Module, generator: nn.Module) -> [optim.Adam, optim.Adam]:
-    d_optimizer = optim.Adam(discriminator.parameters(), config.model_lr, config.model_betas)
-    g_optimizer = optim.Adam(generator.parameters(), config.model_lr, config.model_betas)
+def define_optimizer(d_model: nn.Module, g_model: nn.Module) -> [optim.Adam, optim.Adam]:
+    d_optimizer = optim.Adam(d_model.parameters(),
+                             realesrgan_config.model_lr,
+                             realesrgan_config.model_betas,
+                             realesrgan_config.model_eps,
+                             realesrgan_config.model_weight_decay)
+    g_optimizer = optim.Adam(g_model.parameters(),
+                             realesrgan_config.model_lr,
+                             realesrgan_config.model_betas,
+                             realesrgan_config.model_eps,
+                             realesrgan_config.model_weight_decay)
 
     return d_optimizer, g_optimizer
 
 
 def define_scheduler(d_optimizer: optim.Adam, g_optimizer: optim.Adam) -> [lr_scheduler.MultiStepLR,
                                                                            lr_scheduler.MultiStepLR]:
-    d_scheduler = lr_scheduler.MultiStepLR(d_optimizer, config.lr_scheduler_milestones, config.lr_scheduler_gamma)
-    g_scheduler = lr_scheduler.MultiStepLR(g_optimizer, config.lr_scheduler_milestones, config.lr_scheduler_gamma)
+    d_scheduler = lr_scheduler.MultiStepLR(d_optimizer,
+                                           realesrgan_config.lr_scheduler_milestones,
+                                           realesrgan_config.lr_scheduler_gamma)
+    g_scheduler = lr_scheduler.MultiStepLR(g_optimizer,
+                                           realesrgan_config.lr_scheduler_milestones,
+                                           realesrgan_config.lr_scheduler_gamma)
 
     return d_scheduler, g_scheduler
 
 
-def train(discriminator: nn.Module,
-          generator: nn.Module,
-          ema_model: nn.Module,
-          train_prefetcher: CUDAPrefetcher,
-          pixel_criterion: nn.L1Loss,
-          content_criterion: ContentLoss,
-          adversarial_criterion: BCEWithLogitsLoss,
-          d_optimizer: optim.Adam,
-          g_optimizer: optim.Adam,
-          epoch: int,
-          scaler: amp.GradScaler,
-          writer: SummaryWriter) -> None:
-    """Training main program
+def train(
+        d_model: nn.Module,
+        g_model: nn.Module,
+        ema_g_model: nn.Module,
+        degenerated_train_prefetcher: CUDAPrefetcher,
+        pixel_criterion: nn.L1Loss,
+        feature_criterion: model.ContentLoss,
+        adversarial_criterion: nn.BCEWithLogitsLoss,
+        d_optimizer: optim.Adam,
+        g_optimizer: optim.Adam,
+        epoch: int,
+        scaler: amp.GradScaler,
+        writer: SummaryWriter,
+        device: torch.device = torch.device("cpu"),
+        print_frequency: int = 1,
+) -> None:
+    """training main function
 
     Args:
-        discriminator (nn.Module): discriminator model in adversarial networks
-        generator (nn.Module): generator model in adversarial networks
-        ema_model (nn.Module): Exponential Moving Average Model
-        train_prefetcher (CUDAPrefetcher): training dataset iterator
-        pixel_criterion (nn.L1Loss): Calculate the pixel difference between real and fake samples
-        content_criterion (ContentLoss): Calculate the feature difference between real samples and fake samples by the feature extraction model
-        adversarial_criterion (nn.BCEWithLogitsLoss): Calculate the semantic difference between real samples and fake samples by the discriminator model
-        d_optimizer (optim.Adam): an optimizer for optimizing discriminator models in adversarial networks
-        g_optimizer (optim.Adam): an optimizer for optimizing generator models in adversarial networks
-        epoch (int): number of training epochs during training the adversarial network
-        scaler (amp.GradScaler): Mixed precision training function
-        writer (SummaryWrite): log file management function
+        d_model (nn.Module): discriminator model
+        g_model (nn.Module): generator model
+        ema_g_model (nn.Module): Generator-based exponential mean model
+        degenerated_train_prefetcher (CUDARefetcher): training dataset iterator
+        pixel_criterion (nn.L1Loss): pixel loss function
+        feature_criterion (model.FeatureLoss): feature loss function
+        adversarial_criterion (nn.BCEWithLogitsLoss): Adversarial loss function
+        d_optimizer (optim.Adam): Discriminator model optimizer function
+        g_optimizer (optim.Adam): generator model optimizer function
+        epoch (int): number of training epochs
+        scaler (amp.GradScaler): mixed precision function
+        writer (SummaryWriter): training log function
+        device (torch.device): The model of the evaluation model running device. Default: ``torch.device("cpu")``
+        print_frequency (int): how many times to output the indicator. Default: 1
 
     """
-    # Defining JPEG image manipulation methods
-    jpeg_operation = imgproc.DiffJPEG(False)
-    jpeg_operation = jpeg_operation.to(device=config.device)
-    # Define image sharpening method
-    usm_sharpener = imgproc.USMSharp(50, 0)
-    usm_sharpener = usm_sharpener.to(device=config.device)
+    # Define JPEG compression method and USM sharpening method
+    jpeg_operation = imgproc.DiffJPEG()
+    usm_sharpener = imgproc.USMSharp()
+    jpeg_operation = jpeg_operation.to(device=device)
+    usm_sharpener = usm_sharpener.to(device=device)
 
-    # Calculate how many batches of data are in each Epoch
-    batches = len(train_prefetcher)
-
-    # Print information of progress bar during training
+    # Calculate how many batches of data there are under a dataset iterator
+    batches = len(degenerated_train_prefetcher)
+    # The information printed by the progress bar
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
     pixel_losses = AverageMeter("Pixel loss", ":6.6f")
     content_losses = AverageMeter("Content loss", ":6.6f")
     adversarial_losses = AverageMeter("Adversarial loss", ":6.6f")
-    d_hr_probabilities = AverageMeter("D(HR)", ":6.3f")
+    d_gt_probabilities = AverageMeter("D(GT)", ":6.3f")
     d_sr_probabilities = AverageMeter("D(SR)", ":6.3f")
     progress = ProgressMeter(batches,
                              [batch_time, data_time,
                               pixel_losses, content_losses, adversarial_losses,
-                              d_hr_probabilities, d_sr_probabilities],
+                              d_gt_probabilities, d_sr_probabilities],
                              prefix=f"Epoch: [{epoch + 1}]")
 
     # Put all model in train mode.
-    discriminator.train()
-    generator.train()
+    d_model.train()
+    g_model.train()
 
     # Initialize the number of data batches to print logs on the terminal
     batch_index = 0
 
     # Initialize the data loader and load the first batch of data
-    train_prefetcher.reset()
-    batch_data = train_prefetcher.next()
+    degenerated_train_prefetcher.reset()
+    batch_data = degenerated_train_prefetcher.next()
 
     # Get the initialization training time
     end = time.time()
@@ -339,144 +342,54 @@ def train(discriminator: nn.Module,
         # Calculate the time it takes to load a batch of data
         data_time.update(time.time() - end)
 
-        hr = batch_data["hr"].to(device=config.device, non_blocking=True)
-        kernel1 = batch_data["kernel1"].to(device=config.device, non_blocking=True)
-        kernel2 = batch_data["kernel2"].to(device=config.device, non_blocking=True)
-        sinc_kernel = batch_data["sinc_kernel"].to(device=config.device, non_blocking=True)
+        # Load batches of data
+        gt = batch_data["gt"].to(device=device, non_blocking=True)
+        gaussian_kernel1 = batch_data["gaussian_kernel1"].to(device=device, non_blocking=True)
+        gaussian_kernel2 = batch_data["gaussian_kernel2"].to(device=device, non_blocking=True)
+        sinc_kernel = batch_data["sinc_kernel"].to(device=device, non_blocking=True)
+        pixel_weight = torch.Tensor(realesrgan_config.pixel_weight).to(device=device)
+        content_weight = torch.Tensor(realesrgan_config.content_weight).to(device=device)
+        adversarial_weight = torch.Tensor(realesrgan_config.adversarial_weight).to(device=device)
 
-        # Sharpen high-resolution images
-        out = usm_sharpener(hr, 0.5, 10)
+        # Get the degraded low-resolution image
+        gt_usm, gt, lr = imgproc.degradation_process(gt,
+                                                     gaussian_kernel1,
+                                                     gaussian_kernel2,
+                                                     sinc_kernel,
+                                                     realesrgan_config.upscale_factor,
+                                                     realesrgan_config.degradation_process_parameters_dict,
+                                                     jpeg_operation,
+                                                     usm_sharpener)
 
-        # Get original image size
-        image_height, image_width = out.size()[2:4]
-
-        # First degradation process
-        # Gaussian blur
-        if np.random.uniform() <= config.degradation_process_parameters_dict["first_blur_probability"]:
-            out = imgproc.filter2d_torch(out, kernel1)
-
-        # Resize
-        updown_type = random.choices(["up", "down", "keep"],
-                                     config.degradation_process_parameters_dict["resize_probability1"])[0]
-        if updown_type == "up":
-            scale = np.random.uniform(1, config.degradation_process_parameters_dict["resize_range1"][1])
-        elif updown_type == "down":
-            scale = np.random.uniform(config.degradation_process_parameters_dict["resize_range1"][0], 1)
-        else:
-            scale = 1
-        mode = random.choice(["area", "bilinear", "bicubic"])
-        out = F.interpolate(out, scale_factor=scale, mode=mode)
-
-        # Noise
-        if np.random.uniform() < config.degradation_process_parameters_dict["gaussian_noise_probability1"]:
-            out = imgproc.random_add_gaussian_noise_torch(
-                image=out,
-                sigma_range=config.degradation_process_parameters_dict["noise_range1"],
-                clip=True,
-                rounds=False,
-                gray_prob=config.degradation_process_parameters_dict["gray_noise_probability1"])
-        else:
-            out = imgproc.random_add_poisson_noise_torch(
-                image=out,
-                scale_range=config.degradation_process_parameters_dict["poisson_scale_range1"],
-                gray_prob=config.degradation_process_parameters_dict["gray_noise_probability1"],
-                clip=True,
-                rounds=False)
-
-        # JPEG
-        quality = out.new_zeros(out.size(0)).uniform_(*config.degradation_process_parameters_dict["jpeg_range1"])
-        out = torch.clamp(out, 0, 1)  # clamp to [0, 1], otherwise JPEGer will result in unpleasant artifacts
-        out = jpeg_operation(out, quality=quality)
-
-        # Second degradation process
-        # Gaussian blur
-        if np.random.uniform() < config.degradation_process_parameters_dict["second_blur_probability"]:
-            out = imgproc.filter2d_torch(out, kernel2)
-
-        # Resize
-        updown_type = random.choices(["up", "down", "keep"],
-                                     config.degradation_process_parameters_dict["resize_probability2"])[0]
-        if updown_type == "up":
-            scale = np.random.uniform(1, config.degradation_process_parameters_dict["resize_range2"][1])
-        elif updown_type == "down":
-            scale = np.random.uniform(config.degradation_process_parameters_dict["resize_range2"][0], 1)
-        else:
-            scale = 1
-        mode = random.choice(["area", "bilinear", "bicubic"])
-        out = F.interpolate(out,
-                            size=(int(image_height / config.upscale_factor * scale),
-                                  int(image_width / config.upscale_factor * scale)),
-                            mode=mode)
-
-        # Noise
-        if np.random.uniform() < config.degradation_process_parameters_dict["gaussian_noise_probability2"]:
-            out = imgproc.random_add_gaussian_noise_torch(
-                image=out,
-                sigma_range=config.degradation_process_parameters_dict["noise_range2"],
-                clip=True,
-                rounds=False,
-                gray_prob=config.degradation_process_parameters_dict["gray_noise_probability2"])
-        else:
-            out = imgproc.random_add_poisson_noise_torch(
-                image=out,
-                scale_range=config.degradation_process_parameters_dict["poisson_scale_range2"],
-                gray_prob=config.degradation_process_parameters_dict["gray_noise_probability2"],
-                clip=True,
-                rounds=False)
-
-        if np.random.uniform() < 0.5:
-            # Resize
-            out = F.interpolate(out,
-                                size=(image_height // config.upscale_factor, image_width // config.upscale_factor),
-                                mode=random.choice(["area", "bilinear", "bicubic"]))
-            # Sinc blur
-            out = imgproc.filter2d_torch(out, sinc_kernel)
-
-            # JPEG
-            quality = out.new_zeros(out.size(0)).uniform_(*config.degradation_process_parameters_dict["jpeg_range2"])
-            out = torch.clamp(out, 0, 1)
-            out = jpeg_operation(out, quality=quality)
-        else:
-            # JPEG
-            quality = out.new_zeros(out.size(0)).uniform_(*config.degradation_process_parameters_dict["jpeg_range2"])
-            out = torch.clamp(out, 0, 1)
-            out = jpeg_operation(out, quality=quality)
-
-            # Resize
-            out = F.interpolate(out,
-                                size=(image_height // config.upscale_factor, image_width // config.upscale_factor),
-                                mode=random.choice(["area", "bilinear", "bicubic"]))
-
-            # Sinc blur
-            out = imgproc.filter2d_torch(out, sinc_kernel)
-
-        # Clamp and round
-        lr = torch.clamp((out * 255.0).round(), 0, 255) / 255.
-
-        # LR and HR crop the specified area respectively
-        lr, hr = imgproc.random_crop(lr, hr, config.image_size, config.upscale_factor)
+        # image data augmentation
+        gt_usm, lr = imgproc.random_crop_torch(gt_usm, lr, realesrgan_config.gt_image_size, realesrgan_config.upscale_factor)
+        gt_usm, lr = imgproc.random_rotate_torch(gt_usm, lr, realesrgan_config.upscale_factor, [0, 90, 180, 270])
+        gt_usm, lr = imgproc.random_vertically_flip_torch(gt_usm, lr)
+        gt_usm, lr = imgproc.random_horizontally_flip_torch(gt_usm, lr)
 
         # Set the real sample label to 1, and the false sample label to 0
-        batch_size, _, height, width = hr.shape
-        real_label = torch.full([batch_size, 1, height, width], 1.0, dtype=torch.float, device=config.device)
-        fake_label = torch.full([batch_size, 1, height, width], 0.0, dtype=torch.float, device=config.device)
+        batch_size, _, height, width = gt.shape
+        real_label = torch.full([batch_size, 1, height, width], 1.0, dtype=torch.float, device=device)
+        fake_label = torch.full([batch_size, 1, height, width], 0.0, dtype=torch.float, device=device)
 
         # Start training the generator model
         # During generator training, turn off discriminator backpropagation
-        for d_parameters in discriminator.parameters():
+        for d_parameters in d_model.parameters():
             d_parameters.requires_grad = False
 
         # Initialize generator model gradients
-        generator.zero_grad(set_to_none=True)
+        g_model.zero_grad(set_to_none=True)
 
         # Calculate the perceptual loss of the generator, mainly including pixel loss, feature loss and adversarial loss
         with amp.autocast():
             # Use the generator model to generate fake samples
-            sr = generator(lr)
-            pixel_loss = config.pixel_weight * pixel_criterion(usm_sharpener(sr, 0.5, 10), hr)
-            content_loss = torch.sum(torch.mul(torch.Tensor(config.content_weight),
-                                               torch.Tensor(content_criterion(usm_sharpener(sr, 0.5, 10), hr))))
-            adversarial_loss = config.adversarial_weight * adversarial_criterion(discriminator(sr), real_label)
+            sr = g_model(lr)
+            pixel_loss = pixel_criterion(sr, gt_usm)
+            feature_loss = feature_criterion(sr, gt_usm)
+            adversarial_loss = adversarial_criterion(d_model(sr), real_label)
+            pixel_loss = torch.sum(torch.mul(pixel_weight, pixel_loss))
+            content_loss = torch.sum(torch.mul(content_weight, feature_loss))
+            adversarial_loss = torch.sum(torch.mul(adversarial_weight, adversarial_loss))
             # Calculate the generator total loss value
             g_loss = pixel_loss + content_loss + adversarial_loss
         # Call the gradient scaling function in the mixed precision API to
@@ -489,26 +402,26 @@ def train(discriminator: nn.Module,
 
         # Start training the discriminator model
         # During discriminator model training, enable discriminator model backpropagation
-        for d_parameters in discriminator.parameters():
+        for d_parameters in d_model.parameters():
             d_parameters.requires_grad = True
 
         # Initialize the discriminator model gradients
-        discriminator.zero_grad(set_to_none=True)
+        d_model.zero_grad(set_to_none=True)
 
         # Calculate the classification score of the discriminator model for real samples
         with amp.autocast():
-            hr_output = discriminator(hr)
-            d_loss_hr = adversarial_criterion(hr_output, real_label)
+            gt_output = d_model(gt)
+            d_loss_gt = adversarial_criterion(gt_output, real_label)
         # Call the gradient scaling function in the mixed precision API to
         # bp the gradient information of the fake samples
-        scaler.scale(d_loss_hr).backward()
+        scaler.scale(d_loss_gt).backward()
 
         # Calculate the classification score of the discriminator model for fake samples
         with amp.autocast():
-            sr_output = discriminator(sr.detach().clone())
+            sr_output = d_model(sr.detach().clone())
             d_loss_sr = adversarial_criterion(sr_output, fake_label)
             # Calculate the total discriminator loss value
-            d_loss = d_loss_sr + d_loss_hr
+            d_loss = d_loss_sr + d_loss_gt
         # Call the gradient scaling function in the mixed precision API to
         # bp the gradient information of the fake samples
         scaler.scale(d_loss_sr).backward()
@@ -517,19 +430,19 @@ def train(discriminator: nn.Module,
         scaler.update()
         # Finish training the discriminator model
 
-        # Update EMA
-        ema_model.update()
+        # update exponential average model weights
+        ema_g_model.update_parameters(g_model)
 
         # Calculate the score of the discriminator on real samples and fake samples,
         # the score of real samples is close to 1, and the score of fake samples is close to 0
-        d_hr_probability = torch.sigmoid_(torch.mean(hr_output.detach()))
+        d_gt_probability = torch.sigmoid_(torch.mean(gt_output.detach()))
         d_sr_probability = torch.sigmoid_(torch.mean(sr_output.detach()))
 
         # Statistical accuracy and loss value for terminal data output
         pixel_losses.update(pixel_loss.item(), lr.size(0))
         content_losses.update(content_loss.item(), lr.size(0))
         adversarial_losses.update(adversarial_loss.item(), lr.size(0))
-        d_hr_probabilities.update(d_hr_probability.item(), lr.size(0))
+        d_gt_probabilities.update(d_gt_probability.item(), lr.size(0))
         d_sr_probabilities.update(d_sr_probability.item(), lr.size(0))
 
         # Calculate the time it takes to fully train a batch of data
@@ -537,171 +450,23 @@ def train(discriminator: nn.Module,
         end = time.time()
 
         # Write the data during training to the training log file
-        if batch_index % config.print_frequency == 0:
+        if batch_index % print_frequency == 0:
             iters = batch_index + epoch * batches + 1
             writer.add_scalar("Train/D_Loss", d_loss.item(), iters)
             writer.add_scalar("Train/G_Loss", g_loss.item(), iters)
             writer.add_scalar("Train/Pixel_Loss", pixel_loss.item(), iters)
             writer.add_scalar("Train/Content_Loss", content_loss.item(), iters)
             writer.add_scalar("Train/Adversarial_Loss", adversarial_loss.item(), iters)
-            writer.add_scalar("Train/D(HR)_Probability", d_hr_probability.item(), iters)
+            writer.add_scalar("Train/D(GT)_Probability", d_gt_probability.item(), iters)
             writer.add_scalar("Train/D(SR)_Probability", d_sr_probability.item(), iters)
             progress.display(batch_index)
 
         # Preload the next batch of data
-        batch_data = train_prefetcher.next()
+        batch_data = degenerated_train_prefetcher.next()
 
         # After training a batch of data, add 1 to the number of data batches to ensure that the
         # terminal print data normally
         batch_index += 1
-
-
-def validate(model: nn.Module,
-             ema_model: nn.Module,
-             data_prefetcher: CUDAPrefetcher,
-             epoch: int,
-             writer: SummaryWriter,
-             niqe_model: Any,
-             mode: str) -> float:
-    """Test main program
-
-    Args:
-        model (nn.Module): generator model in adversarial networks
-        ema_model (nn.Module): Exponential Moving Average Model
-        data_prefetcher (CUDAPrefetcher): test dataset iterator
-        epoch (int): number of test epochs during training of the adversarial network
-        writer (SummaryWriter): log file management function
-        niqe_model (nn.Module): The model used to calculate the model NIQE metric
-        mode (str): test validation dataset accuracy or test dataset accuracy
-
-    """
-    # Calculate how many batches of data are in each Epoch
-    batches = len(data_prefetcher)
-    batch_time = AverageMeter("Time", ":6.3f")
-    niqe_metrics = AverageMeter("NIQE", ":4.2f")
-    progress = ProgressMeter(len(data_prefetcher), [batch_time, niqe_metrics], prefix=f"{mode}: ")
-
-    # Restore the model before the EMA
-    ema_model.apply_shadow()
-    # Put the adversarial network model in validation mode
-    model.eval()
-
-    # Initialize the number of data batches to print logs on the terminal
-    batch_index = 0
-
-    # Initialize the data loader and load the first batch of data
-    data_prefetcher.reset()
-    batch_data = data_prefetcher.next()
-
-    # Get the initialization test time
-    end = time.time()
-
-    with torch.no_grad():
-        while batch_data is not None:
-            lr = batch_data["lr"].to(device=config.device, non_blocking=True)
-
-            # Mixed precision
-            with amp.autocast():
-                sr = model(lr)
-
-            # Statistical loss value for terminal data output
-            niqe = niqe_model(sr)
-            niqe_metrics.update(niqe.item(), lr.size(0))
-
-            # Calculate the time it takes to fully test a batch of data
-            batch_time.update(time.time() - end)
-            end = time.time()
-
-            # Record training log information
-            if batch_index % (batches // 5) == 0:
-                progress.display(batch_index)
-
-            # Preload the next batch of data
-            batch_data = data_prefetcher.next()
-
-            # After training a batch of data, add 1 to the number of data batches to ensure that the
-            # terminal print data normally
-            batch_index += 1
-
-    # Restoring the EMA model
-    ema_model.restore()
-
-    # Print average PSNR metrics
-    progress.display_summary()
-
-    if mode == "Valid" or mode == "Test":
-        writer.add_scalar(f"{mode}/NIQE", niqe_metrics.avg, epoch + 1)
-    else:
-        raise ValueError("Unsupported mode, please use `Valid` or `Test`.")
-
-    return niqe_metrics.avg
-
-
-class Summary(Enum):
-    NONE = 0
-    AVERAGE = 1
-    SUM = 2
-    COUNT = 3
-
-
-class AverageMeter(object):
-    def __init__(self, name, fmt=":f", summary_type=Summary.AVERAGE):
-        self.name = name
-        self.fmt = fmt
-        self.summary_type = summary_type
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
-    def __str__(self):
-        fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
-        return fmtstr.format(**self.__dict__)
-
-    def summary(self):
-        if self.summary_type is Summary.NONE:
-            fmtstr = ""
-        elif self.summary_type is Summary.AVERAGE:
-            fmtstr = "{name} {avg:.2f}"
-        elif self.summary_type is Summary.SUM:
-            fmtstr = "{name} {sum:.2f}"
-        elif self.summary_type is Summary.COUNT:
-            fmtstr = "{name} {count:.2f}"
-        else:
-            raise ValueError(f"Invalid summary type {self.summary_type}")
-
-        return fmtstr.format(**self.__dict__)
-
-
-class ProgressMeter(object):
-    def __init__(self, num_batches, meters, prefix=""):
-        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
-        self.meters = meters
-        self.prefix = prefix
-
-    def display(self, batch):
-        entries = [self.prefix + self.batch_fmtstr.format(batch)]
-        entries += [str(meter) for meter in self.meters]
-        print("\t".join(entries))
-
-    def display_summary(self):
-        entries = [" *"]
-        entries += [meter.summary() for meter in self.meters]
-        print(" ".join(entries))
-
-    def _get_batch_fmtstr(self, num_batches):
-        num_digits = len(str(num_batches // 1))
-        fmt = "{:" + str(num_digits) + "d}"
-        return "[" + fmt + "/" + fmt.format(num_batches) + "]"
 
 
 if __name__ == "__main__":

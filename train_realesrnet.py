@@ -12,27 +12,23 @@
 # limitations under the License.
 # ==============================================================================
 import os
-import random
-import shutil
 import time
-from enum import Enum
-from typing import Any
 
-import numpy as np
 import torch
 from torch import nn
 from torch import optim
 from torch.cuda import amp
-from torch.nn import functional as F
 from torch.optim import lr_scheduler
+from torch.optim.swa_utils import AveragedModel
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-import config
 import imgproc
-from dataset import CUDAPrefetcher, TrainValidImageDataset, TestImageDataset
+import model
+import rrdbnet_config
+from dataset import CUDAPrefetcher, DegeneratedImageDataset, PairedImageDataset
 from image_quality_assessment import NIQE
-from model import Generator, EMA
+from utils import load_state_dict, make_directory, save_checkpoint, validate, AverageMeter, ProgressMeter
 
 
 def main():
@@ -42,215 +38,220 @@ def main():
     # Initialize training to generate network evaluation indicators
     best_niqe = 100.0
 
-    train_prefetcher, valid_prefetcher, test_prefetcher = load_dataset()
+    degenerated_train_prefetcher, paired_test_prefetcher = load_dataset()
     print("Load all datasets successfully.")
 
-    model, ema_model = build_model()
-    print("Build all model successfully.")
+    g_model, ema_g_model = build_model()
+    print(f"Build `{rrdbnet_config.g_model_arch_name}` model successfully.")
 
-    pixel_criterion = define_loss()
+    criterion = define_loss()
     print("Define all loss functions successfully.")
 
-    optimizer = define_optimizer(model)
+    optimizer = define_optimizer(g_model)
     print("Define all optimizer functions successfully.")
 
     scheduler = define_scheduler(optimizer)
     print("Define all optimizer scheduler successfully.")
 
-    print("Check whether the pretrained model is restored...")
-    if config.resume:
-        # Load checkpoint model
-        checkpoint = torch.load(config.resume, map_location=lambda storage, loc: storage)
-        # Restore the parameters in the training node to this point
-        start_epoch = checkpoint["epoch"]
-        best_niqe = checkpoint["best_niqe"]
-        # Load model state dict. Extract the fitted model weights
-        model_state_dict = model.state_dict()
-        state_dict = {k: v for k, v in checkpoint["state_dict"].items() if k in model_state_dict.keys()}
-        # Overwrite the model weights to the current model (base model)
-        model_state_dict.update(state_dict)
-        model.load_state_dict(model_state_dict)
-        # Load ema model state dict. Extract the fitted model weights
-        ema_model_state_dict = ema_model.state_dict()
-        ema_state_dict = {k: v for k, v in checkpoint["ema_state_dict"].items() if k in ema_model_state_dict.keys()}
-        # Overwrite the model weights to the current model (ema model)
-        ema_model_state_dict.update(ema_state_dict)
-        ema_model.load_state_dict(ema_model_state_dict)
-        # Load the optimizer model
-        optimizer.load_state_dict(checkpoint["optimizer"])
-        # Load the optimizer scheduler
-        scheduler.load_state_dict(checkpoint["scheduler"])
-        print("Loaded pretrained model weights.")
+    # Load the pre-trained model weights and fine-tune the model
+    print("Check whether to load pretrained model weights...")
+    if rrdbnet_config.pretrained_g_model_weights_path:
+        g_model = load_state_dict(g_model, rrdbnet_config.pretrained_g_model_weights_path)
+        print(f"Loaded `{rrdbnet_config.pretrained_g_model_weights_path}` pretrained model weights successfully.")
+    else:
+        print("Pretrained model weights not found.")
 
-    # Create a folder of super-resolution experiment results
-    samples_dir = os.path.join("samples", config.exp_name)
-    results_dir = os.path.join("results", config.exp_name)
-    if not os.path.exists(samples_dir):
-        os.makedirs(samples_dir)
-    if not os.path.exists(results_dir):
-        os.makedirs(results_dir)
+    # Load the last training interruption node
+    print("Check whether the resume model is restored...")
+    if rrdbnet_config.resume_g_model_weights_path:
+        g_model, ema_g_model, start_epoch, best_psnr, best_ssim, optimizer, scheduler = load_state_dict(
+            g_model,
+            rrdbnet_config.pretrained_g_model_weights_path,
+            ema_g_model,
+            optimizer,
+            scheduler,
+            "resume")
+        print("Loaded resume model weights.")
+    else:
+        print("Resume training model not found. Start training from scratch.")
 
-    # Create training process log file
-    writer = SummaryWriter(os.path.join("samples", "logs", config.exp_name))
+    # Model weight save address
+    samples_dir = os.path.join("samples", rrdbnet_config.exp_name)
+    results_dir = os.path.join("results", rrdbnet_config.exp_name)
+    make_directory(samples_dir)
+    make_directory(results_dir)
 
-    # Initialize the gradient scaler
+    # create model training log
+    writer = SummaryWriter(os.path.join("samples", "logs", rrdbnet_config.exp_name))
+
+    # Initialize the mixed precision method
     scaler = amp.GradScaler()
 
-    # Create an IQA evaluation model
-    niqe_model = NIQE(config.upscale_factor, config.niqe_model_path)
+    # Initialize the image clarity evaluation method
+    niqe_model = NIQE(rrdbnet_config.upscale_factor, rrdbnet_config.niqe_model_path)
+    niqe_model = niqe_model.to(device=rrdbnet_config.device)
 
-    # Transfer the IQA model to the specified device
-    niqe_model = niqe_model.to(device=config.device)
-
-    for epoch in range(start_epoch, config.epochs):
-        train(model, ema_model, train_prefetcher, pixel_criterion, optimizer, epoch, scaler, writer)
-        _ = validate(model, ema_model, valid_prefetcher, epoch, writer, niqe_model, "Valid")
-        niqe = validate(model, ema_model, test_prefetcher, epoch, writer, niqe_model, "Test")
+    for epoch in range(start_epoch, rrdbnet_config.epochs):
+        train(g_model,
+              ema_g_model,
+              degenerated_train_prefetcher,
+              criterion,
+              optimizer,
+              epoch,
+              scaler,
+              writer,
+              rrdbnet_config.device,
+              rrdbnet_config.train_print_frequency)
+        niqe = validate(g_model,
+                        paired_test_prefetcher,
+                        epoch,
+                        writer,
+                        niqe_model,
+                        rrdbnet_config.device,
+                        rrdbnet_config.test_print_frequency,
+                        "Test")
         print("\n")
 
-        # Update LR
+        # Update the learning rate after each training epoch
         scheduler.step()
 
-        # Automatically save the model with the highest index
+        # Automatically save model weights
         is_best = niqe < best_niqe
+        is_last = (epoch + 1) == rrdbnet_config.epochs
         best_niqe = min(niqe, best_niqe)
-        torch.save({"epoch": epoch + 1,
-                    "best_niqe": best_niqe,
-                    "state_dict": model.state_dict(),
-                    "ema_state_dict": ema_model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "scheduler": scheduler.state_dict()},
-                   os.path.join(samples_dir, f"g_epoch_{epoch + 1}.pth.tar"))
-        if is_best:
-            shutil.copyfile(os.path.join(samples_dir, f"g_epoch_{epoch + 1}.pth.tar"),
-                            os.path.join(results_dir, "g_best.pth.tar"))
-        if (epoch + 1) == config.epochs:
-            shutil.copyfile(os.path.join(samples_dir, f"g_epoch_{epoch + 1}.pth.tar"),
-                            os.path.join(results_dir, "g_last.pth.tar"))
+        save_checkpoint({"epoch": epoch + 1,
+                         "best_niqe": best_niqe,
+                         "state_dict": g_model.state_dict(),
+                         "ema_state_dict": ema_g_model.state_dict(),
+                         "optimizer": optimizer.state_dict(),
+                         "scheduler": scheduler.state_dict()},
+                        f"g_epoch_{epoch + 1}.pth.tar",
+                        samples_dir,
+                        results_dir,
+                        "g_best.pth.tar",
+                        "g_last.pth.tar",
+                        is_best,
+                        is_last)
 
 
-def load_dataset() -> [CUDAPrefetcher, CUDAPrefetcher, CUDAPrefetcher]:
-    # Load train, test and valid datasets
-    train_datasets = TrainValidImageDataset(config.train_image_dir,
-                                            config.image_size,
-                                            config.upscale_factor,
-                                            "Train",
-                                            config.degradation_model_parameters_dict)
-    valid_datasets = TrainValidImageDataset(config.valid_image_dir,
-                                            config.image_size,
-                                            config.upscale_factor,
-                                            "Valid",
-                                            config.degradation_model_parameters_dict)
-    test_datasets = TestImageDataset(config.test_lr_image_dir,
-                                     config.test_hr_image_dir)
+def load_dataset() -> [CUDAPrefetcher, CUDAPrefetcher]:
+    """Load training dataset"""
+    degenerated_train_datasets = DegeneratedImageDataset(rrdbnet_config.degradation_train_gt_images_dir,
+                                                         rrdbnet_config.degradation_model_parameters_dict)
+    paired_test_datasets = PairedImageDataset(rrdbnet_config.degradation_test_gt_images_dir,
+                                              rrdbnet_config.degradation_test_lr_images_dir)
+    # generate dataset iterator
+    degenerated_train_dataloader = DataLoader(degenerated_train_datasets,
+                                              batch_size=rrdbnet_config.batch_size,
+                                              shuffle=True,
+                                              num_workers=rrdbnet_config.num_workers,
+                                              pin_memory=True,
+                                              drop_last=True,
+                                              persistent_workers=True)
+    paired_test_dataloader = DataLoader(paired_test_datasets,
+                                        batch_size=1,
+                                        shuffle=False,
+                                        num_workers=1,
+                                        pin_memory=True,
+                                        drop_last=False,
+                                        persistent_workers=True)
 
-    # Generator all dataloader
-    train_dataloader = DataLoader(train_datasets,
-                                  batch_size=config.batch_size,
-                                  shuffle=True,
-                                  num_workers=config.num_workers,
-                                  pin_memory=True,
-                                  drop_last=True,
-                                  persistent_workers=True)
-    valid_dataloader = DataLoader(valid_datasets,
-                                  batch_size=1,
-                                  shuffle=False,
-                                  num_workers=1,
-                                  pin_memory=True,
-                                  drop_last=False,
-                                  persistent_workers=True)
-    test_dataloader = DataLoader(test_datasets,
-                                 batch_size=1,
-                                 shuffle=False,
-                                 num_workers=1,
-                                 pin_memory=True,
-                                 drop_last=False,
-                                 persistent_workers=True)
+    # Replace the data set iterator with CUDA to speed up
+    degenerated_train_prefetcher = CUDAPrefetcher(degenerated_train_dataloader, rrdbnet_config.device)
+    paired_test_prefetcher = CUDAPrefetcher(paired_test_dataloader, rrdbnet_config.device)
 
-    # Place all data on the preprocessing data loader
-    train_prefetcher = CUDAPrefetcher(train_dataloader, config.device)
-    valid_prefetcher = CUDAPrefetcher(valid_dataloader, config.device)
-    test_prefetcher = CUDAPrefetcher(test_dataloader, config.device)
-
-    return train_prefetcher, valid_prefetcher, test_prefetcher
+    return degenerated_train_prefetcher, paired_test_prefetcher
 
 
 def build_model() -> [nn.Module, nn.Module]:
-    model = Generator(config.in_channels, config.out_channels, config.upscale_factor)
-    model = model.to(device=config.device)
+    """Initialize the model"""
+    g_model = model.__dict__[rrdbnet_config.g_model_arch_name](in_channels=rrdbnet_config.g_in_channels,
+                                                               out_channels=rrdbnet_config.g_out_channels,
+                                                               channels=rrdbnet_config.g_channels,
+                                                               growth_channels=rrdbnet_config.g_growth_channels,
+                                                               num_rrdb=rrdbnet_config.g_num_rrdb)
+    g_model = g_model.to(device=rrdbnet_config.device)
 
-    # Create an Exponential Moving Average Model
-    ema_model = EMA(model, config.ema_model_weight_decay)
-    ema_model = ema_model.to(device=config.device)
-    ema_model.register()
+    # Generate an exponential average model based on the generator to stabilize model training
+    ema_avg_fn = lambda averaged_model_parameter, model_parameter, num_averaged: (1 - rrdbnet_config.model_ema_decay) * averaged_model_parameter + rrdbnet_config.model_ema_decay * model_parameter
+    ema_g_model = AveragedModel(g_model, avg_fn=ema_avg_fn)
 
-    return model, ema_model
+    return g_model, ema_g_model
 
 
 def define_loss() -> nn.L1Loss:
     pixel_criterion = nn.L1Loss()
-    pixel_criterion = pixel_criterion.to(device=config.device)
+    pixel_criterion = pixel_criterion.to(device=rrdbnet_config.device)
 
     return pixel_criterion
 
 
-def define_optimizer(model) -> optim.Adam:
-    optimizer = optim.Adam(model.parameters(), config.model_lr, config.model_betas)
+def define_optimizer(g_model: nn.Module) -> optim.Adam:
+    optimizer = optim.Adam(g_model.parameters(),
+                           rrdbnet_config.model_lr,
+                           rrdbnet_config.model_betas,
+                           rrdbnet_config.model_eps,
+                           rrdbnet_config.model_weight_decay)
 
     return optimizer
 
 
-def define_scheduler(optimizer) -> lr_scheduler.StepLR:
-    scheduler = lr_scheduler.StepLR(optimizer, config.lr_scheduler_step_size, config.lr_scheduler_gamma)
+def define_scheduler(optimizer: optim.Adam) -> lr_scheduler.StepLR:
+    scheduler = lr_scheduler.StepLR(optimizer,
+                                    rrdbnet_config.lr_scheduler_step_size,
+                                    rrdbnet_config.lr_scheduler_gamma)
 
     return scheduler
 
 
-def train(model: nn.Module,
-          ema_model: nn.Module,
-          train_prefetcher: CUDAPrefetcher,
-          pixel_criterion: nn.MSELoss,
-          optimizer: optim.Adam,
-          epoch: int,
-          scaler: amp.GradScaler,
-          writer: SummaryWriter) -> None:
-    """Training main program
+def train(
+        g_model: nn.Module,
+        ema_g_model: nn.Module,
+        degenerated_train_prefetcher: CUDAPrefetcher,
+        criterion: nn.L1Loss,
+        optimizer: optim.Adam,
+        epoch: int,
+        scaler: amp.GradScaler,
+        writer: SummaryWriter,
+        device: torch.device = torch.device("cpu"),
+        print_frequency: int = 1,
+) -> None:
+    """training main function
 
     Args:
-        model (nn.Module): the generator model in the generative network
-        ema_model (nn.Module): Exponential Moving Average Model
-        train_prefetcher (CUDAPrefetcher): training dataset iterator
-        pixel_criterion (nn.L1Loss): Calculate the pixel difference between real and fake samples
-        optimizer (optim.Adam): optimizer for optimizing generator models in generative networks
-        epoch (int): number of training epochs during training the generative network
-        scaler (amp.GradScaler): Mixed precision training function
-        writer (SummaryWrite): log file management function
+        g_model (nn.Module): generator model
+        ema_g_model (nn.Module): Generator-based exponential mean model
+        degenerated_train_prefetcher (CUDARefetcher): training dataset iterator
+        criterion (nn.L1Loss): loss function
+        optimizer (optim.Adam): optimizer function
+        epoch (int): number of training epochs
+        scaler (amp.GradScaler): mixed precision function
+        writer (SummaryWriter): training log function
+        device (torch.device): The model of the evaluation model running device. Default: ``torch.device("cpu")``
+        print_frequency (int): how many times to output the indicator. Default: 1
 
     """
-    # Defining JPEG image manipulation methods
-    jpeg_operation = imgproc.DiffJPEG(False)
-    jpeg_operation = jpeg_operation.to(device=config.device)
-    # Define image sharpening method
-    usm_sharpener = imgproc.USMSharp(50, 0)
-    usm_sharpener = usm_sharpener.to(device=config.device)
+    # Define the JPEG compression method
+    jpeg_operation = imgproc.DiffJPEG()
+    jpeg_operation = jpeg_operation.to(device=device)
 
-    # Calculate how many batches of data are in each Epoch
-    batches = len(train_prefetcher)
-    # Print information of progress bar during training
+    # Calculate how many batches of data there are under a dataset iterator
+    batches = len(degenerated_train_prefetcher)
+    # The information printed by the progress bar
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
     losses = AverageMeter("Loss", ":6.6f")
     progress = ProgressMeter(batches, [batch_time, data_time, losses], prefix=f"Epoch: [{epoch + 1}]")
 
     # Put the generator in training mode
-    model.train()
+    g_model.train()
 
     # Initialize the number of data batches to print logs on the terminal
     batch_index = 0
 
     # Initialize the data loader and load the first batch of data
-    train_prefetcher.reset()
-    batch_data = train_prefetcher.next()
+    degenerated_train_prefetcher.reset()
+    batch_data = degenerated_train_prefetcher.next()
 
     # Get the initialization training time
     end = time.time()
@@ -259,130 +260,35 @@ def train(model: nn.Module,
         # Calculate the time it takes to load a batch of data
         data_time.update(time.time() - end)
 
-        hr = batch_data["hr"].to(device=config.device, non_blocking=True)
-        kernel1 = batch_data["kernel1"].to(device=config.device, non_blocking=True)
-        kernel2 = batch_data["kernel2"].to(device=config.device, non_blocking=True)
-        sinc_kernel = batch_data["sinc_kernel"].to(device=config.device, non_blocking=True)
+        gt = batch_data["gt"].to(device=device, non_blocking=True)
+        gaussian_kernel1 = batch_data["gaussian_kernel1"].to(device=device, non_blocking=True)
+        gaussian_kernel2 = batch_data["gaussian_kernel2"].to(device=device, non_blocking=True)
+        sinc_kernel = batch_data["sinc_kernel"].to(device=device, non_blocking=True)
+        loss_weight = torch.Tensor(rrdbnet_config.loss_weight).to(device=device)
 
-        # # Sharpen high-resolution images
-        out = usm_sharpener(hr, 0.5, 10)
+        # Get the degraded low-resolution image
+        gt_usm, gt, lr = imgproc.degradation_process(gt,
+                                                     gaussian_kernel1,
+                                                     gaussian_kernel2,
+                                                     sinc_kernel,
+                                                     rrdbnet_config.upscale_factor,
+                                                     rrdbnet_config.degradation_process_parameters_dict,
+                                                     jpeg_operation)
 
-        # Get original image size
-        image_height, image_width = out.size()[2:4]
-
-        # First degradation process
-        # Gaussian blur
-        if np.random.uniform() <= config.degradation_process_parameters_dict["first_blur_probability"]:
-            out = imgproc.filter2d_torch(out, kernel1)
-
-        # Resize
-        updown_type = random.choices(["up", "down", "keep"],
-                                     config.degradation_process_parameters_dict["resize_probability1"])[0]
-        if updown_type == "up":
-            scale = np.random.uniform(1, config.degradation_process_parameters_dict["resize_range1"][1])
-        elif updown_type == "down":
-            scale = np.random.uniform(config.degradation_process_parameters_dict["resize_range1"][0], 1)
-        else:
-            scale = 1
-        mode = random.choice(["area", "bilinear", "bicubic"])
-        out = F.interpolate(out, scale_factor=scale, mode=mode)
-
-        # Noise
-        if np.random.uniform() < config.degradation_process_parameters_dict["gaussian_noise_probability1"]:
-            out = imgproc.random_add_gaussian_noise_torch(
-                image=out,
-                sigma_range=config.degradation_process_parameters_dict["noise_range1"],
-                clip=True,
-                rounds=False,
-                gray_prob=config.degradation_process_parameters_dict["gray_noise_probability1"])
-        else:
-            out = imgproc.random_add_poisson_noise_torch(
-                image=out,
-                scale_range=config.degradation_process_parameters_dict["poisson_scale_range1"],
-                gray_prob=config.degradation_process_parameters_dict["gray_noise_probability1"],
-                clip=True,
-                rounds=False)
-
-        # JPEG
-        quality = out.new_zeros(out.size(0)).uniform_(*config.degradation_process_parameters_dict["jpeg_range1"])
-        out = torch.clamp(out, 0, 1)  # clamp to [0, 1], otherwise JPEGer will result in unpleasant artifacts
-        out = jpeg_operation(out, quality)
-
-        # Second degradation process
-        # Gaussian blur
-        if np.random.uniform() < config.degradation_process_parameters_dict["second_blur_probability"]:
-            out = imgproc.filter2d_torch(out, kernel2)
-
-        # Resize
-        updown_type = random.choices(["up", "down", "keep"],
-                                     config.degradation_process_parameters_dict["resize_probability2"])[0]
-        if updown_type == "up":
-            scale = np.random.uniform(1, config.degradation_process_parameters_dict["resize_range2"][1])
-        elif updown_type == "down":
-            scale = np.random.uniform(config.degradation_process_parameters_dict["resize_range2"][0], 1)
-        else:
-            scale = 1
-        mode = random.choice(["area", "bilinear", "bicubic"])
-        out = F.interpolate(out,
-                            size=(int(image_height / config.upscale_factor * scale),
-                                  int(image_width / config.upscale_factor * scale)),
-                            mode=mode)
-
-        # Noise
-        if np.random.uniform() < config.degradation_process_parameters_dict["gaussian_noise_probability2"]:
-            out = imgproc.random_add_gaussian_noise_torch(
-                image=out,
-                sigma_range=config.degradation_process_parameters_dict["noise_range2"],
-                clip=True,
-                rounds=False,
-                gray_prob=config.degradation_process_parameters_dict["gray_noise_probability2"])
-        else:
-            out = imgproc.random_add_poisson_noise_torch(
-                image=out,
-                scale_range=config.degradation_process_parameters_dict["poisson_scale_range2"],
-                gray_prob=config.degradation_process_parameters_dict["gray_noise_probability2"],
-                clip=True,
-                rounds=False)
-
-        if np.random.uniform() < 0.5:
-            # Resize
-            out = F.interpolate(out,
-                                size=(image_height // config.upscale_factor, image_width // config.upscale_factor),
-                                mode=random.choice(["area", "bilinear", "bicubic"]))
-            # Sinc blur
-            out = imgproc.filter2d_torch(out, sinc_kernel)
-
-            # JPEG
-            quality = out.new_zeros(out.size(0)).uniform_(*config.degradation_process_parameters_dict["jpeg_range2"])
-            out = torch.clamp(out, 0, 1)
-            out = jpeg_operation(out, quality)
-        else:
-            # JPEG
-            quality = out.new_zeros(out.size(0)).uniform_(*config.degradation_process_parameters_dict["jpeg_range2"])
-            out = torch.clamp(out, 0, 1)
-            out = jpeg_operation(out, quality)
-
-            # Resize
-            out = F.interpolate(out,
-                                size=(image_height // config.upscale_factor, image_width // config.upscale_factor),
-                                mode=random.choice(["area", "bilinear", "bicubic"]))
-
-            # Sinc blur
-            out = imgproc.filter2d_torch(out, sinc_kernel)
-
-        # Clamp and round
-        lr = torch.clamp((out * 255.0).round(), 0, 255) / 255.
-
-        # LR and HR crop the specified area respectively
-        lr, hr = imgproc.random_crop(lr, hr, config.image_size, config.upscale_factor)
+        # image data augmentation
+        gt_usm, lr = imgproc.random_crop_torch(gt_usm, lr, rrdbnet_config.gt_image_size, rrdbnet_config.upscale_factor)
+        gt_usm, lr = imgproc.random_rotate_torch(gt_usm, lr, rrdbnet_config.upscale_factor, [0, 90, 180, 270])
+        gt_usm, lr = imgproc.random_vertically_flip_torch(gt_usm, lr)
+        gt_usm, lr = imgproc.random_horizontally_flip_torch(gt_usm, lr)
 
         # Initialize the generator gradient
-        model.zero_grad(set_to_none=True)
+        g_model.zero_grad(set_to_none=True)
 
         # Mixed precision training
         with amp.autocast():
-            sr = model(lr)
-            loss = pixel_criterion(sr, hr)
+            sr = g_model(lr)
+            loss = criterion(sr, gt_usm)
+            loss = torch.sum(torch.mul(loss_weight, loss))
 
         # Backpropagation
         scaler.scale(loss).backward()
@@ -390,8 +296,8 @@ def train(model: nn.Module,
         scaler.step(optimizer)
         scaler.update()
 
-        # Update EMA
-        ema_model.update()
+        # update exponential average model weights
+        ema_g_model.update_parameters(g_model)
 
         # Statistical loss value for terminal data output
         losses.update(loss.item(), lr.size(0))
@@ -401,164 +307,16 @@ def train(model: nn.Module,
         end = time.time()
 
         # Record training log information
-        if batch_index % config.print_frequency == 0:
+        if batch_index % print_frequency == 0:
             # Writer Loss to file
             writer.add_scalar("Train/Loss", loss.item(), batch_index + epoch * batches + 1)
             progress.display(batch_index)
 
         # Preload the next batch of data
-        batch_data = train_prefetcher.next()
+        batch_data = degenerated_train_prefetcher.next()
 
-        # After a batch of data is calculated, add 1 to the number of batches
+        # Add 1 to the number of data batches
         batch_index += 1
-
-
-def validate(model: nn.Module,
-             ema_model: nn.Module,
-             data_prefetcher: CUDAPrefetcher,
-             epoch: int,
-             writer: SummaryWriter,
-             niqe_model: Any,
-             mode: str) -> float:
-    """Test main program
-
-    Args:
-        model (nn.Module): generator model in adversarial networks
-        ema_model (nn.Module): Exponential Moving Average Model
-        data_prefetcher (CUDAPrefetcher): test dataset iterator
-        epoch (int): number of test epochs during training of the adversarial network
-        writer (SummaryWriter): log file management function
-        niqe_model (nn.Module): The model used to calculate the model NIQE metric
-        mode (str): test validation dataset accuracy or test dataset accuracy
-
-    """
-    # Calculate how many batches of data are in each Epoch
-    batches = len(data_prefetcher)
-    batch_time = AverageMeter("Time", ":6.3f")
-    niqe_metrics = AverageMeter("NIQE", ":4.2f")
-    progress = ProgressMeter(len(data_prefetcher), [batch_time, niqe_metrics], prefix=f"{mode}: ")
-
-    # Restore the model before the EMA
-    ema_model.apply_shadow()
-    # Put the adversarial network model in validation mode
-    model.eval()
-
-    # Initialize the number of data batches to print logs on the terminal
-    batch_index = 0
-
-    # Initialize the data loader and load the first batch of data
-    data_prefetcher.reset()
-    batch_data = data_prefetcher.next()
-
-    # Get the initialization test time
-    end = time.time()
-
-    with torch.no_grad():
-        while batch_data is not None:
-            lr = batch_data["lr"].to(device=config.device, non_blocking=True)
-
-            # Mixed precision
-            with amp.autocast():
-                sr = model(lr)
-
-            # Statistical loss value for terminal data output
-            niqe = niqe_model(sr)
-            niqe_metrics.update(niqe.item(), lr.size(0))
-
-            # Calculate the time it takes to fully test a batch of data
-            batch_time.update(time.time() - end)
-            end = time.time()
-
-            # Record training log information
-            if batch_index % (batches // 5) == 0:
-                progress.display(batch_index)
-
-            # Preload the next batch of data
-            batch_data = data_prefetcher.next()
-
-            # After training a batch of data, add 1 to the number of data batches to ensure that the
-            # terminal print data normally
-            batch_index += 1
-
-    # Restoring the EMA model
-    ema_model.restore()
-
-    # Print average PSNR metrics
-    progress.display_summary()
-
-    if mode == "Valid" or mode == "Test":
-        writer.add_scalar(f"{mode}/NIQE", niqe_metrics.avg, epoch + 1)
-    else:
-        raise ValueError("Unsupported mode, please use `Valid` or `Test`.")
-
-    return niqe_metrics.avg
-
-
-class Summary(Enum):
-    NONE = 0
-    AVERAGE = 1
-    SUM = 2
-    COUNT = 3
-
-
-class AverageMeter(object):
-    def __init__(self, name, fmt=":f", summary_type=Summary.AVERAGE):
-        self.name = name
-        self.fmt = fmt
-        self.summary_type = summary_type
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
-    def __str__(self):
-        fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
-        return fmtstr.format(**self.__dict__)
-
-    def summary(self):
-        if self.summary_type is Summary.NONE:
-            fmtstr = ""
-        elif self.summary_type is Summary.AVERAGE:
-            fmtstr = "{name} {avg:.2f}"
-        elif self.summary_type is Summary.SUM:
-            fmtstr = "{name} {sum:.2f}"
-        elif self.summary_type is Summary.COUNT:
-            fmtstr = "{name} {count:.2f}"
-        else:
-            raise ValueError(f"Invalid summary type {self.summary_type}")
-
-        return fmtstr.format(**self.__dict__)
-
-
-class ProgressMeter(object):
-    def __init__(self, num_batches, meters, prefix=""):
-        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
-        self.meters = meters
-        self.prefix = prefix
-
-    def display(self, batch):
-        entries = [self.prefix + self.batch_fmtstr.format(batch)]
-        entries += [str(meter) for meter in self.meters]
-        print("\t".join(entries))
-
-    def display_summary(self):
-        entries = [" *"]
-        entries += [meter.summary() for meter in self.meters]
-        print(" ".join(entries))
-
-    def _get_batch_fmtstr(self, num_batches):
-        num_digits = len(str(num_batches // 1))
-        fmt = "{:" + str(num_digits) + "d}"
-        return "[" + fmt + "/" + fmt.format(num_batches) + "]"
 
 
 if __name__ == "__main__":

@@ -19,12 +19,12 @@ import torch
 
 import config
 import imgproc
-from model import Generator
+from model import RRDBNet
 
 
 def main(args):
     # Initialize the model
-    model = Generator(config.in_channels, config.out_channels, config.upscale_factor)
+    model = RRDBNet(config.in_channels, config.out_channels, config.upscale_factor)
     model = model.to(memory_format=torch.channels_last, device=config.device)
     print("Build Real_ESRGAN model successfully.")
 

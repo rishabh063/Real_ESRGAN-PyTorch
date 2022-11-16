@@ -20,181 +20,173 @@ import threading
 import cv2
 import numpy as np
 import torch
+from torch import Tensor
 from torch.utils.data import Dataset, DataLoader
 
 import imgproc
 
 __all__ = [
-    "TrainValidImageDataset", "TestImageDataset",
+    "DegeneratedImageDataset", "PairedImageDataset",
     "PrefetchGenerator", "PrefetchDataLoader", "CPUPrefetcher", "CUDAPrefetcher",
 ]
 
 
-class TrainValidImageDataset(Dataset):
-    """Define training/valid dataset loading methods.
+class DegeneratedImageDataset(Dataset):
+    """Define degenerate dataset loading method.
 
     Args:
-        image_dir (str): Train/Valid dataset address
-        image_size (int): High resolution image size
-        upscale_factor (int): Image up scale factor.
-        mode (str): Data set loading method, the training dataset is for data enhancement,
-            and the verification data set is not for data enhancement.
+        gt_images_dir (str): Ground-truth dataset address
         degradation_model_parameters_dict (dict): Parameter dictionary with degenerate model
 
     """
 
-    def __init__(self, image_dir: str, image_size: int, upscale_factor: int, mode: str,
-                 degradation_model_parameters_dict: dict) -> None:
-        super(TrainValidImageDataset, self).__init__()
-        # Get all image file names in folder
-        self.image_file_names = [os.path.join(image_dir, image_file_name) for image_file_name in os.listdir(image_dir)]
-        # Specify the high-resolution image size, with equal length and width
-        self.image_size = image_size
-        # Define degradation model parameters
-        self.parameters = degradation_model_parameters_dict
+    def __init__(
+            self,
+            gt_images_dir: str,
+            degradation_model_parameters_dict: dict
+    ) -> None:
+        super(DegeneratedImageDataset, self).__init__()
+        # Get a list of all image filenames
+        self.gt_image_file_names = [os.path.join(gt_images_dir, image_file_name) for image_file_name in
+                                    os.listdir(gt_images_dir)]
+        # Define the probability of each processing operation in the first-order degradation
+        self.degradation_model_parameters_dict = degradation_model_parameters_dict
         # Define the size of the sinc filter kernel
-        self.sinc_tensor = torch.zeros([self.parameters["sinc_kernel_size"],
-                                        self.parameters["sinc_kernel_size"]]).float()
-        self.sinc_tensor[self.parameters["sinc_kernel_size"] // 2, self.parameters["sinc_kernel_size"] // 2] = 1
-        # How many times the high-resolution image is the low-resolution image
-        self.upscale_factor = upscale_factor
-        # Load training dataset or test dataset
-        self.mode = mode
+        self.sinc_tensor = torch.zeros([degradation_model_parameters_dict["sinc_kernel_size"],
+                                        degradation_model_parameters_dict["sinc_kernel_size"]]).float()
+        self.sinc_tensor[degradation_model_parameters_dict["sinc_kernel_size"] // 2,
+                         degradation_model_parameters_dict["sinc_kernel_size"] // 2] = 1
 
-    def __getitem__(self, batch_index: int) -> [torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        # Read a batch of image data
-        image = cv2.imread(self.image_file_names[batch_index], cv2.IMREAD_UNCHANGED).astype(np.float32) / 255.
-
-        if self.mode == "Train":
-            # Image data augmentation
-            hr_image = imgproc.random_rotate(image, [0, 90, 180, 270])
-            hr_image = imgproc.random_horizontally_flip(hr_image, 0.5)
-            hr_image = imgproc.random_vertically_flip(hr_image, 0.5)
-
-            # BGR convert to RGB
-            hr_image = cv2.cvtColor(hr_image, cv2.COLOR_BGR2RGB)
-
-            # Convert image data into Tensor stream format (PyTorch).
-            # Note: The range of input and output is between [0, 1]
-            hr_tensor = imgproc.image_to_tensor(hr_image, False, False)
-
-            # First degenerate operation
-            kernel_size1 = random.choice(self.parameters["gaussian_kernel_range"])
-            if np.random.uniform() < self.parameters["sinc_kernel_probability1"]:
-                # this sinc filter setting is for kernels ranging from [7, 21]
-                if kernel_size1 < int(np.median(self.parameters["gaussian_kernel_range"])):
-                    omega_c = np.random.uniform(np.pi / 3, np.pi)
-                else:
-                    omega_c = np.random.uniform(np.pi / 5, np.pi)
-                kernel1 = imgproc.generate_sinc_kernel(omega_c, kernel_size1, padding=False)
-            else:
-                kernel1 = imgproc.random_mixed_kernels(
-                    self.parameters["gaussian_kernel_type"],
-                    self.parameters["gaussian_kernel_probability1"],
-                    kernel_size1,
-                    self.parameters["gaussian_sigma_range1"],
-                    self.parameters["gaussian_sigma_range1"],
-                    [-math.pi, math.pi],
-                    self.parameters["generalized_kernel_beta_range1"],
-                    self.parameters["plateau_kernel_beta_range1"],
-                    noise_range=None)
-            # pad kernel
-            pad_size = (self.parameters["gaussian_kernel_range"][-1] - kernel_size1) // 2
-            kernel1 = np.pad(kernel1, ((pad_size, pad_size), (pad_size, pad_size)))
-
-            # Second degenerate operation
-            kernel_size2 = random.choice(self.parameters["gaussian_kernel_range"])
-            if np.random.uniform() < self.parameters["sinc_kernel_probability2"]:
-                # this sinc filter setting is for kernels ranging from [7, 21]
-                if kernel_size2 < int(np.median(self.parameters["gaussian_kernel_range"])):
-                    omega_c = np.random.uniform(np.pi / 3, np.pi)
-                else:
-                    omega_c = np.random.uniform(np.pi / 5, np.pi)
-                kernel2 = imgproc.generate_sinc_kernel(omega_c, kernel_size2, padding=False)
-            else:
-                kernel2 = imgproc.random_mixed_kernels(
-                    self.parameters["gaussian_kernel_type"],
-                    self.parameters["gaussian_kernel_probability2"],
-                    kernel_size2,
-                    self.parameters["gaussian_sigma_range2"],
-                    self.parameters["gaussian_sigma_range2"],
-                    [-math.pi, math.pi],
-                    self.parameters["generalized_kernel_beta_range2"],
-                    self.parameters["plateau_kernel_beta_range2"],
-                    noise_range=None)
-
-            # pad kernel
-            pad_size = (self.parameters["gaussian_kernel_range"][-1] - kernel_size2) // 2
-            kernel2 = np.pad(kernel2, ((pad_size, pad_size), (pad_size, pad_size)))
-
-            # Final sinc kernel
-            if np.random.uniform() < self.parameters["sinc_kernel_probability3"]:
-                kernel_size2 = random.choice(self.parameters["gaussian_kernel_range"])
+    def __getitem__(
+            self,
+            batch_index: int
+    ) -> [Tensor, Tensor, Tensor] or [Tensor, Tensor]:
+        # Generate a first-order degenerate Gaussian kernel
+        gaussian_kernel_size1 = random.choice(self.degradation_model_parameters_dict["gaussian_kernel_range"])
+        if np.random.uniform() < self.degradation_model_parameters_dict["sinc_kernel_probability1"]:
+            # This sinc filter setting applies to kernels in the range [7, 21] and can be adjusted dynamically
+            if gaussian_kernel_size1 < int(np.median(self.degradation_model_parameters_dict["gaussian_kernel_range"])):
                 omega_c = np.random.uniform(np.pi / 3, np.pi)
-                sinc_kernel = imgproc.generate_sinc_kernel(omega_c, kernel_size2, padding=self.parameters["sinc_kernel_size"])
-                sinc_kernel = torch.FloatTensor(sinc_kernel)
             else:
-                sinc_kernel = self.sinc_tensor
+                omega_c = np.random.uniform(np.pi / 5, np.pi)
+            gaussian_kernel1 = imgproc.generate_sinc_kernel(
+                omega_c,
+                gaussian_kernel_size1,
+                padding=False)
+        else:
+            gaussian_kernel1 = imgproc.random_mixed_kernels(
+                self.degradation_model_parameters_dict["gaussian_kernel_type"],
+                self.degradation_model_parameters_dict["gaussian_kernel_probability1"],
+                gaussian_kernel_size1,
+                self.degradation_model_parameters_dict["gaussian_sigma_range1"],
+                self.degradation_model_parameters_dict["gaussian_sigma_range1"],
+                [-math.pi, math.pi],
+                self.degradation_model_parameters_dict["generalized_kernel_beta_range1"],
+                self.degradation_model_parameters_dict["plateau_kernel_beta_range1"],
+                noise_range=None)
+        # First-order degenerate Gaussian fill kernel size
+        pad_size = (self.degradation_model_parameters_dict["gaussian_kernel_range"][-1] - gaussian_kernel_size1) // 2
+        gaussian_kernel1 = np.pad(gaussian_kernel1, ((pad_size, pad_size), (pad_size, pad_size)))
 
-            kernel1 = torch.FloatTensor(kernel1)
-            kernel2 = torch.FloatTensor(kernel2)
+        # Generate a second-order degenerate Gaussian kernel
+        gaussian_kernel_size2 = random.choice(self.degradation_model_parameters_dict["gaussian_kernel_range"])
+        if np.random.uniform() < self.degradation_model_parameters_dict["sinc_kernel_probability2"]:
+            # This sinc filter setting applies to kernels in the range [7, 21] and can be adjusted dynamically
+            if gaussian_kernel_size2 < int(np.median(self.degradation_model_parameters_dict["gaussian_kernel_range"])):
+                omega_c = np.random.uniform(np.pi / 3, np.pi)
+            else:
+                omega_c = np.random.uniform(np.pi / 5, np.pi)
+            gaussian_kernel2 = imgproc.generate_sinc_kernel(
+                omega_c,
+                gaussian_kernel_size2,
+                padding=False)
+        else:
+            gaussian_kernel2 = imgproc.random_mixed_kernels(
+                self.degradation_model_parameters_dict["gaussian_kernel_type"],
+                self.degradation_model_parameters_dict["gaussian_kernel_probability2"],
+                gaussian_kernel_size2,
+                self.degradation_model_parameters_dict["gaussian_sigma_range2"],
+                self.degradation_model_parameters_dict["gaussian_sigma_range2"],
+                [-math.pi, math.pi],
+                self.degradation_model_parameters_dict["generalized_kernel_beta_range2"],
+                self.degradation_model_parameters_dict["plateau_kernel_beta_range2"],
+                noise_range=None)
+
+        # second-order degenerate Gaussian fill kernel size
+        pad_size = (self.degradation_model_parameters_dict["gaussian_kernel_range"][-1] - gaussian_kernel_size2) // 2
+        gaussian_kernel2 = np.pad(gaussian_kernel2, ((pad_size, pad_size), (pad_size, pad_size)))
+
+        # Sinc filter kernel
+        if np.random.uniform() < self.degradation_model_parameters_dict["sinc_kernel_probability3"]:
+            gaussian_kernel_size2 = random.choice(self.degradation_model_parameters_dict["gaussian_kernel_range"])
+            omega_c = np.random.uniform(np.pi / 3, np.pi)
+            sinc_kernel = imgproc.generate_sinc_kernel(
+                omega_c,
+                gaussian_kernel_size2,
+                padding=self.degradation_model_parameters_dict["sinc_kernel_size"])
             sinc_kernel = torch.FloatTensor(sinc_kernel)
+        else:
+            sinc_kernel = self.sinc_tensor
 
-            return {"hr": hr_tensor, "kernel1": kernel1, "kernel2": kernel2, "sinc_kernel": sinc_kernel}
+        gaussian_kernel1 = torch.FloatTensor(gaussian_kernel1)
+        gaussian_kernel2 = torch.FloatTensor(gaussian_kernel2)
+        sinc_kernel = torch.FloatTensor(sinc_kernel)
 
-        elif self.mode == "Valid":
-            # Center crop image
-            hr_image = imgproc.center_crop(image, self.image_size)
-            # Use Bicubic kernel create LR image
-            lr_image = imgproc.image_resize(hr_image, 1 / self.upscale_factor)
+        # read a batch of images
+        gt_image = cv2.imread(self.gt_image_file_names[batch_index])
 
-            # BGR convert to RGB
-            lr_image = cv2.cvtColor(lr_image, cv2.COLOR_BGR2RGB)
-            hr_image = cv2.cvtColor(hr_image, cv2.COLOR_BGR2RGB)
+        # BGR image data to RGB image data
+        gt_image = cv2.cvtColor(gt_image, cv2.COLOR_BGR2RGB)
 
-            # Convert image data into Tensor stream format (PyTorch).
-            # Note: The range of input and output is between [0, 1]
-            lr_tensor = imgproc.image_to_tensor(lr_image, False, False)
-            hr_tensor = imgproc.image_to_tensor(hr_image, False, False)
+        # Convert the RGB image data channel to a data format supported by PyTorch
+        gt_tensor = imgproc.image_to_tensor(gt_image, False, False)
 
-            return {"lr": lr_tensor, "hr": hr_tensor}
+        return {"gt": gt_tensor,
+                "gaussian_kernel1": gaussian_kernel1,
+                "gaussian_kernel2": gaussian_kernel2,
+                "sinc_kernel": sinc_kernel}
 
     def __len__(self) -> int:
-        return len(self.image_file_names)
+        return len(self.gt_image_file_names)
 
 
-class TestImageDataset(Dataset):
-    """Define Test dataset loading methods.
+class PairedImageDataset(Dataset):
+    """Image dataset loading method after registration
 
     Args:
-        test_lr_image_dir (str): Test dataset address for low resolution image dir.
-        test_hr_image_dir (str): Test dataset address for high resolution image dir.
+        paired_gt_images_dir (str): ground truth images after registration
+        paired_lr_images_dir (str): registered low-resolution images
     """
 
-    def __init__(self, test_lr_image_dir: str, test_hr_image_dir: str) -> None:
-        super(TestImageDataset, self).__init__()
-        # Get all image file names in folder
-        self.lr_image_file_names = [os.path.join(test_lr_image_dir, x) for x in os.listdir(test_lr_image_dir)]
-        self.hr_image_file_names = [os.path.join(test_hr_image_dir, x) for x in os.listdir(test_lr_image_dir)]
+    def __init__(
+            self,
+            paired_gt_images_dir: str,
+            paired_lr_images_dir: str,
+    ) -> None:
+        super(PairedImageDataset, self).__init__()
+        # Get a list of all image filenames
+        self.paired_gt_image_file_names = [os.path.join(paired_gt_images_dir, x) for x in
+                                           os.listdir(paired_gt_images_dir)]
+        self.paired_lr_image_file_names = [os.path.join(paired_lr_images_dir, x) for x in
+                                           os.listdir(paired_lr_images_dir)]
 
-    def __getitem__(self, batch_index: int) -> [torch.Tensor, torch.Tensor]:
-        # Read a batch of image data
-        lr_image = cv2.imread(self.lr_image_file_names[batch_index], cv2.IMREAD_UNCHANGED).astype(np.float32) / 255.
-        hr_image = cv2.imread(self.hr_image_file_names[batch_index], cv2.IMREAD_UNCHANGED).astype(np.float32) / 255.
+    def __getitem__(self, batch_index: int) -> dict[str, Tensor]:
+        # read a batch of images
+        gt_image = cv2.imread(self.paired_gt_image_file_names[batch_index]).astype(np.float32) / 255.
+        lr_image = cv2.imread(self.paired_lr_image_file_names[batch_index]).astype(np.float32) / 255.
 
-        # BGR convert to RGB
+        # BGR image data to RGB image data
+        gt_image = cv2.cvtColor(gt_image, cv2.COLOR_BGR2RGB)
         lr_image = cv2.cvtColor(lr_image, cv2.COLOR_BGR2RGB)
-        hr_image = cv2.cvtColor(hr_image, cv2.COLOR_BGR2RGB)
 
-        # Convert image data into Tensor stream format (PyTorch).
-        # Note: The range of input and output is between [0, 1]
+        # Convert the RGB image data channel to a data format supported by PyTorch
+        gt_tensor = imgproc.image_to_tensor(gt_image, False, False)
         lr_tensor = imgproc.image_to_tensor(lr_image, False, False)
-        hr_tensor = imgproc.image_to_tensor(hr_image, False, False)
 
-        return {"lr": lr_tensor, "hr": hr_tensor}
+        return {"gt": gt_tensor, "lr": lr_tensor}
 
     def __len__(self) -> int:
-        return len(self.lr_image_file_names)
+        return len(self.paired_gt_image_file_names)
 
 
 class PrefetchGenerator(threading.Thread):

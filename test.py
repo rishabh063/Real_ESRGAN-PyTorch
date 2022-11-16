@@ -20,12 +20,12 @@ from natsort import natsorted
 import config
 import imgproc
 from image_quality_assessment import NIQE
-from model import Generator
+from model import RRDBNet
 
 
 def main() -> None:
     # Initialize the super-resolution model
-    model = Generator(config.in_channels, config.out_channels, config.upscale_factor)
+    model = RRDBNet(config.in_channels, config.out_channels, config.upscale_factor)
     model = model.to(device=config.device, memory_format=torch.channels_last)
     print("Build Real_ESRGAN model successfully.")
 
