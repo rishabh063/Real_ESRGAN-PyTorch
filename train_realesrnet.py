@@ -276,10 +276,10 @@ def train(
                                                      jpeg_operation)
 
         # image data augmentation
-        gt_usm, lr = imgproc.random_crop_torch(gt_usm, lr, rrdbnet_config.gt_image_size, rrdbnet_config.upscale_factor)
-        gt_usm, lr = imgproc.random_rotate_torch(gt_usm, lr, rrdbnet_config.upscale_factor, [0, 90, 180, 270])
-        gt_usm, lr = imgproc.random_vertically_flip_torch(gt_usm, lr)
-        gt_usm, lr = imgproc.random_horizontally_flip_torch(gt_usm, lr)
+        (gt_usm, gt), lr = imgproc.random_crop_torch([gt_usm, gt], lr, rrdbnet_config.gt_image_size, rrdbnet_config.upscale_factor)
+        (gt_usm, gt), lr = imgproc.random_rotate_torch([gt_usm, gt], lr, rrdbnet_config.upscale_factor, [0, 90, 180, 270])
+        (gt_usm, gt), lr = imgproc.random_vertically_flip_torch([gt_usm, gt], lr)
+        (gt_usm, gt), lr = imgproc.random_horizontally_flip_torch([gt_usm, gt], lr)
 
         # Initialize the generator gradient
         g_model.zero_grad(set_to_none=True)
