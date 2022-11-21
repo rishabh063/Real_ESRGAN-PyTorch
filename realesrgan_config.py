@@ -39,7 +39,7 @@ g_in_channels = 3
 g_out_channels = 3
 g_channels = 64
 g_growth_channels = 32
-g_num_rrdb = 4
+g_num_rrdb = 23
 # model magnification
 upscale_factor = 4
 # Current configuration parameter method
