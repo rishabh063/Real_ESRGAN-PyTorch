@@ -218,8 +218,7 @@ def build_model() -> [nn.Module, nn.Module, nn.Module]:
     g_model = g_model.to(device=realesrgan_config.device)
 
     # Generate an exponential average model based on the generator to stabilize model training
-    ema_avg = lambda averaged_model_parameter, model_parameter, num_averaged: (
-                                                                                          1 - realesrgan_config.model_ema_decay) * averaged_model_parameter + realesrgan_config.model_ema_decay * model_parameter
+    ema_avg = lambda averaged_model_parameter, model_parameter, num_averaged: (1 - realesrgan_config.model_ema_decay) * averaged_model_parameter + realesrgan_config.model_ema_decay * model_parameter
     ema_g_model = AveragedModel(g_model, avg_fn=ema_avg)
 
     return d_model, g_model, ema_g_model
