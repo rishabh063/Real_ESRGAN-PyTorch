@@ -231,9 +231,11 @@ def train(
         print_frequency (int): how many times to output the indicator. Default: 1
 
     """
-    # Define the JPEG compression method
+    # Define JPEG compression method and USM sharpening method
     jpeg_operation = imgproc.DiffJPEG()
+    usm_sharpener = imgproc.USMSharp()
     jpeg_operation = jpeg_operation.to(device=device)
+    usm_sharpener = usm_sharpener.to(device=device)
 
     # Calculate how many batches of data there are under a dataset iterator
     batches = len(degenerated_train_prefetcher)
@@ -273,7 +275,8 @@ def train(
                                                      sinc_kernel,
                                                      rrdbnet_config.upscale_factor,
                                                      rrdbnet_config.degradation_process_parameters_dict,
-                                                     jpeg_operation)
+                                                     jpeg_operation,
+                                                     usm_sharpener)
 
         # image data augmentation
         (gt_usm, gt), lr = imgproc.random_crop_torch([gt_usm, gt], lr, rrdbnet_config.gt_image_size, rrdbnet_config.upscale_factor)

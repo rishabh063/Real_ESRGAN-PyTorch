@@ -1497,7 +1497,7 @@ class DiffJPEG(nn.Module):
         return out
 
 
-def _usm_sharp(image: ndarray, weight: float, radius: int, threshold: int) -> ndarray:
+def _usm_sharp(image: ndarray, weight: float = 0.5, radius: int = 50, threshold: int = 10) -> ndarray:
     if radius % 2 == 0:
         radius += 1
 
