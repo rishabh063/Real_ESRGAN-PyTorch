@@ -15,8 +15,7 @@ import os
 import time
 
 import torch
-from torch import nn
-from torch import optim
+from torch import nn, optim
 from torch.cuda import amp
 from torch.optim import lr_scheduler
 from torch.optim.swa_utils import AveragedModel
@@ -25,7 +24,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import imgproc
 import model
-import rrdbnet_config
+import realesrnet_config
 from dataset import CUDAPrefetcher, DegeneratedImageDataset, PairedImageDataset
 from image_quality_assessment import NIQE
 from utils import load_state_dict, make_directory, save_checkpoint, validate, AverageMeter, ProgressMeter
@@ -42,7 +41,7 @@ def main():
     print("Load all datasets successfully.")
 
     g_model, ema_g_model = build_model()
-    print(f"Build `{rrdbnet_config.g_model_arch_name}` model successfully.")
+    print(f"Build `{realesrnet_config.g_model_arch_name}` model successfully.")
 
     criterion = define_loss()
     print("Define all loss functions successfully.")
@@ -55,18 +54,18 @@ def main():
 
     # Load the pre-trained model weights and fine-tune the model
     print("Check whether to load pretrained model weights...")
-    if rrdbnet_config.pretrained_g_model_weights_path:
-        g_model = load_state_dict(g_model, rrdbnet_config.pretrained_g_model_weights_path)
-        print(f"Loaded `{rrdbnet_config.pretrained_g_model_weights_path}` pretrained model weights successfully.")
+    if realesrnet_config.pretrained_g_model_weights_path:
+        g_model = load_state_dict(g_model, realesrnet_config.pretrained_g_model_weights_path)
+        print(f"Loaded `{realesrnet_config.pretrained_g_model_weights_path}` pretrained model weights successfully.")
     else:
         print("Pretrained model weights not found.")
 
     # Load the last training interruption node
     print("Check whether the resume model is restored...")
-    if rrdbnet_config.resume_g_model_weights_path:
+    if realesrnet_config.resume_g_model_weights_path:
         g_model, ema_g_model, start_epoch, best_psnr, best_ssim, optimizer, scheduler = load_state_dict(
             g_model,
-            rrdbnet_config.pretrained_g_model_weights_path,
+            realesrnet_config.pretrained_g_model_weights_path,
             ema_g_model,
             optimizer,
             scheduler,
@@ -76,22 +75,22 @@ def main():
         print("Resume training model not found. Start training from scratch.")
 
     # Model weight save address
-    samples_dir = os.path.join("samples", rrdbnet_config.exp_name)
-    results_dir = os.path.join("results", rrdbnet_config.exp_name)
+    samples_dir = os.path.join("samples", realesrnet_config.exp_name)
+    results_dir = os.path.join("results", realesrnet_config.exp_name)
     make_directory(samples_dir)
     make_directory(results_dir)
 
     # create model training log
-    writer = SummaryWriter(os.path.join("samples", "logs", rrdbnet_config.exp_name))
+    writer = SummaryWriter(os.path.join("samples", "logs", realesrnet_config.exp_name))
 
     # Initialize the mixed precision method
     scaler = amp.GradScaler()
 
     # Initialize the image clarity evaluation method
-    niqe_model = NIQE(rrdbnet_config.upscale_factor, rrdbnet_config.niqe_model_path)
-    niqe_model = niqe_model.to(device=rrdbnet_config.device)
+    niqe_model = NIQE(realesrnet_config.upscale_factor, realesrnet_config.niqe_model_path)
+    niqe_model = niqe_model.to(device=realesrnet_config.device)
 
-    for epoch in range(start_epoch, rrdbnet_config.epochs):
+    for epoch in range(start_epoch, realesrnet_config.epochs):
         train(g_model,
               ema_g_model,
               degenerated_train_prefetcher,
@@ -100,15 +99,15 @@ def main():
               epoch,
               scaler,
               writer,
-              rrdbnet_config.device,
-              rrdbnet_config.train_print_frequency)
+              realesrnet_config.device,
+              realesrnet_config.train_print_frequency)
         niqe = validate(g_model,
                         paired_test_prefetcher,
                         epoch,
                         writer,
                         niqe_model,
-                        rrdbnet_config.device,
-                        rrdbnet_config.test_print_frequency,
+                        realesrnet_config.device,
+                        realesrnet_config.test_print_frequency,
                         "Test")
         print("\n")
 
@@ -117,7 +116,7 @@ def main():
 
         # Automatically save model weights
         is_best = niqe < best_niqe
-        is_last = (epoch + 1) == rrdbnet_config.epochs
+        is_last = (epoch + 1) == realesrnet_config.epochs
         best_niqe = min(niqe, best_niqe)
         save_checkpoint({"epoch": epoch + 1,
                          "best_niqe": best_niqe,
@@ -136,15 +135,15 @@ def main():
 
 def load_dataset() -> [CUDAPrefetcher, CUDAPrefetcher]:
     """Load training dataset"""
-    degenerated_train_datasets = DegeneratedImageDataset(rrdbnet_config.degradation_train_gt_images_dir,
-                                                         rrdbnet_config.degradation_model_parameters_dict)
-    paired_test_datasets = PairedImageDataset(rrdbnet_config.degradation_test_gt_images_dir,
-                                              rrdbnet_config.degradation_test_lr_images_dir)
+    degenerated_train_datasets = DegeneratedImageDataset(realesrnet_config.degradation_train_gt_images_dir,
+                                                         realesrnet_config.degradation_model_parameters_dict)
+    paired_test_datasets = PairedImageDataset(realesrnet_config.degradation_test_gt_images_dir,
+                                              realesrnet_config.degradation_test_lr_images_dir)
     # generate dataset iterator
     degenerated_train_dataloader = DataLoader(degenerated_train_datasets,
-                                              batch_size=rrdbnet_config.batch_size,
+                                              batch_size=realesrnet_config.batch_size,
                                               shuffle=True,
-                                              num_workers=rrdbnet_config.num_workers,
+                                              num_workers=realesrnet_config.num_workers,
                                               pin_memory=True,
                                               drop_last=True,
                                               persistent_workers=True)
@@ -157,23 +156,23 @@ def load_dataset() -> [CUDAPrefetcher, CUDAPrefetcher]:
                                         persistent_workers=True)
 
     # Replace the data set iterator with CUDA to speed up
-    degenerated_train_prefetcher = CUDAPrefetcher(degenerated_train_dataloader, rrdbnet_config.device)
-    paired_test_prefetcher = CUDAPrefetcher(paired_test_dataloader, rrdbnet_config.device)
+    degenerated_train_prefetcher = CUDAPrefetcher(degenerated_train_dataloader, realesrnet_config.device)
+    paired_test_prefetcher = CUDAPrefetcher(paired_test_dataloader, realesrnet_config.device)
 
     return degenerated_train_prefetcher, paired_test_prefetcher
 
 
 def build_model() -> [nn.Module, nn.Module]:
     """Initialize the model"""
-    g_model = model.__dict__[rrdbnet_config.g_model_arch_name](in_channels=rrdbnet_config.g_in_channels,
-                                                               out_channels=rrdbnet_config.g_out_channels,
-                                                               channels=rrdbnet_config.g_channels,
-                                                               growth_channels=rrdbnet_config.g_growth_channels,
-                                                               num_rrdb=rrdbnet_config.g_num_rrdb)
-    g_model = g_model.to(device=rrdbnet_config.device)
+    g_model = model.__dict__[realesrnet_config.g_model_arch_name](in_channels=realesrnet_config.g_in_channels,
+                                                                  out_channels=realesrnet_config.g_out_channels,
+                                                                  channels=realesrnet_config.g_channels,
+                                                                  growth_channels=realesrnet_config.g_growth_channels,
+                                                                  num_rrdb=realesrnet_config.g_num_rrdb)
+    g_model = g_model.to(device=realesrnet_config.device)
 
     # Generate an exponential average model based on the generator to stabilize model training
-    ema_avg_fn = lambda averaged_model_parameter, model_parameter, num_averaged: (1 - rrdbnet_config.model_ema_decay) * averaged_model_parameter + rrdbnet_config.model_ema_decay * model_parameter
+    ema_avg_fn = lambda averaged_model_parameter, model_parameter, num_averaged: (1 - realesrnet_config.model_ema_decay) * averaged_model_parameter + realesrnet_config.model_ema_decay * model_parameter
     ema_g_model = AveragedModel(g_model, avg_fn=ema_avg_fn)
 
     return g_model, ema_g_model
@@ -181,25 +180,25 @@ def build_model() -> [nn.Module, nn.Module]:
 
 def define_loss() -> nn.L1Loss:
     pixel_criterion = nn.L1Loss()
-    pixel_criterion = pixel_criterion.to(device=rrdbnet_config.device)
+    pixel_criterion = pixel_criterion.to(device=realesrnet_config.device)
 
     return pixel_criterion
 
 
 def define_optimizer(g_model: nn.Module) -> optim.Adam:
     optimizer = optim.Adam(g_model.parameters(),
-                           rrdbnet_config.model_lr,
-                           rrdbnet_config.model_betas,
-                           rrdbnet_config.model_eps,
-                           rrdbnet_config.model_weight_decay)
+                           realesrnet_config.model_lr,
+                           realesrnet_config.model_betas,
+                           realesrnet_config.model_eps,
+                           realesrnet_config.model_weight_decay)
 
     return optimizer
 
 
 def define_scheduler(optimizer: optim.Adam) -> lr_scheduler.StepLR:
     scheduler = lr_scheduler.StepLR(optimizer,
-                                    rrdbnet_config.lr_scheduler_step_size,
-                                    rrdbnet_config.lr_scheduler_gamma)
+                                    realesrnet_config.lr_scheduler_step_size,
+                                    realesrnet_config.lr_scheduler_gamma)
 
     return scheduler
 
@@ -266,21 +265,23 @@ def train(
         gaussian_kernel1 = batch_data["gaussian_kernel1"].to(device=device, non_blocking=True)
         gaussian_kernel2 = batch_data["gaussian_kernel2"].to(device=device, non_blocking=True)
         sinc_kernel = batch_data["sinc_kernel"].to(device=device, non_blocking=True)
-        loss_weight = torch.Tensor(rrdbnet_config.loss_weight).to(device=device)
+        loss_weight = torch.Tensor(realesrnet_config.loss_weight).to(device=device)
 
         # Get the degraded low-resolution image
         gt_usm, gt, lr = imgproc.degradation_process(gt,
                                                      gaussian_kernel1,
                                                      gaussian_kernel2,
                                                      sinc_kernel,
-                                                     rrdbnet_config.upscale_factor,
-                                                     rrdbnet_config.degradation_process_parameters_dict,
+                                                     realesrnet_config.upscale_factor,
+                                                     realesrnet_config.degradation_process_parameters_dict,
                                                      jpeg_operation,
                                                      usm_sharpener)
 
         # image data augmentation
-        (gt_usm, gt), lr = imgproc.random_crop_torch([gt_usm, gt], lr, rrdbnet_config.gt_image_size, rrdbnet_config.upscale_factor)
-        (gt_usm, gt), lr = imgproc.random_rotate_torch([gt_usm, gt], lr, rrdbnet_config.upscale_factor, [0, 90, 180, 270])
+        (gt_usm, gt), lr = imgproc.random_crop_torch([gt_usm, gt], lr, realesrnet_config.gt_image_size,
+                                                     realesrnet_config.upscale_factor)
+        (gt_usm, gt), lr = imgproc.random_rotate_torch([gt_usm, gt], lr, realesrnet_config.upscale_factor,
+                                                       [0, 90, 180, 270])
         (gt_usm, gt), lr = imgproc.random_vertically_flip_torch([gt_usm, gt], lr)
         (gt_usm, gt), lr = imgproc.random_horizontally_flip_torch([gt_usm, gt], lr)
 
