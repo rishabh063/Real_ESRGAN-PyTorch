@@ -17,50 +17,51 @@ import cv2
 import torch
 from natsort import natsorted
 
-import config
 import imgproc
+import model
+import realesrgan_config
 from image_quality_assessment import NIQE
-from model import RRDBNet
+from utils import load_state_dict
 
 
 def main() -> None:
     # Initialize the super-resolution model
-    model = RRDBNet(config.in_channels, config.out_channels, config.upscale_factor)
-    model = model.to(device=config.device, memory_format=torch.channels_last)
+    g_model = model.__dict__[realesrgan_config.g_model_arch_name](in_channels=realesrgan_config.g_in_channels,
+                                                                  out_channels=realesrgan_config.g_out_channels,
+                                                                  channels=realesrgan_config.g_channels,
+                                                                  growth_channels=realesrgan_config.g_growth_channels,
+                                                                  num_rrdb=realesrgan_config.g_num_rrdb)
+    g_model = g_model.to(device=realesrgan_config.device)
     print("Build Real_ESRGAN model successfully.")
 
     # Load the super-resolution model weights
-    checkpoint = torch.load(config.model_path, map_location=lambda storage, loc: storage)
-    model_state_dict = model.state_dict()
-    state_dict = {k.replace("model.", ""): v for k, v in checkpoint["ema_state_dict"].items() if
-                  k.replace("model.", "") in model_state_dict.keys()}
-    model.load_state_dict(state_dict)
-    print(f"Load Real_ESRGAN model weights `{os.path.abspath(config.model_path)}` successfully.")
+    g_model = load_state_dict(g_model, realesrgan_config.g_model_weights_path)
+    print(f"Load RealESRGAN model weights `{os.path.abspath(realesrgan_config.g_model_weights_path)}` successfully.")
 
     # Create a folder of super-resolution experiment results
-    if not os.path.exists(config.sr_dir):
-        os.makedirs(config.sr_dir)
+    if not os.path.exists(realesrgan_config.degradation_test_sr_images_dir):
+        os.makedirs(realesrgan_config.degradation_test_sr_images_dir)
 
     # Start the verification mode of the model.
-    model.eval()
+    g_model.eval()
 
     # Initialize the sharpness evaluation function
-    niqe = NIQE(config.upscale_factor, config.niqe_model_path)
+    niqe = NIQE(realesrgan_config.upscale_factor, realesrgan_config.niqe_model_path)
 
     # Set the sharpness evaluation function calculation device to the specified model
-    niqe = niqe.to(device=config.device, memory_format=torch.channels_last, non_blocking=True)
+    niqe = niqe.to(device=realesrgan_config.device)
 
     # Initialize IQA metrics
     niqe_metrics = 0.0
 
     # Get a list of test image file names.
-    file_names = natsorted(os.listdir(config.lr_dir))
+    file_names = natsorted(os.listdir(realesrgan_config.degradation_test_lr_images_dir))
     # Get the number of test image files.
     total_files = len(file_names)
 
     for index in range(total_files):
-        lr_image_path = os.path.join(config.lr_dir, file_names[index])
-        sr_image_path = os.path.join(config.sr_dir, file_names[index])
+        lr_image_path = os.path.join(realesrgan_config.degradation_test_lr_images_dir, file_names[index])
+        sr_image_path = os.path.join(realesrgan_config.degradation_test_sr_images_dir, file_names[index])
 
         print(f"Processing `{os.path.abspath(lr_image_path)}`...")
         # Read LR image
@@ -73,11 +74,11 @@ def main() -> None:
         lr_tensor = imgproc.image_to_tensor(lr_image, False, False).unsqueeze_(0)
 
         # Transfer Tensor channel image format data to CUDA device
-        lr_tensor = lr_tensor.to(device=config.device, memory_format=torch.channels_last, non_blocking=True)
+        lr_tensor = lr_tensor.to(device=realesrgan_config.device, non_blocking=True)
 
         # Only reconstruct the Y channel image data.
         with torch.no_grad():
-            sr_tensor = model(lr_tensor)
+            sr_tensor = g_model(lr_tensor)
 
         # Save image
         sr_image = imgproc.tensor_to_image(sr_tensor, False, False)
