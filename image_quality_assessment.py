@@ -15,14 +15,15 @@ import collections.abc
 import math
 import typing
 from itertools import repeat
+from typing import Any
 
 import numpy as np
-import scipy.io
 import torch
+from scipy.io import loadmat
 from scipy.ndimage.filters import convolve
 from scipy.special import gamma
-from torch import nn
-from torch.nn import functional as F
+from torch import nn, Tensor
+from torch.nn import functional as F_torch
 
 import imgproc
 
@@ -71,7 +72,7 @@ def _estimate_aggd_parameters(vector: np.ndarray) -> [np.ndarray, float, float]:
     return aggd_parameters, left_beta, right_beta
 
 
-def _get_mscn_feature(image: np.ndarray) -> np.ndarray:
+def _get_mscn_feature(image: np.ndarray) -> list[float | Any]:
     """Python implements the NIQE (Natural Image Quality Evaluator) function,
     This function is used to calculate the MSCN feature map
 
@@ -146,7 +147,7 @@ def _fit_mscn_ipac(image: np.ndarray,
         features_parameters.append(np.array(feature))
 
         if scale == 1:
-            image = imgproc.image_resize(image / 255., scale=0.5, antialiasing=True)
+            image = imgproc.image_resize(image / 255., scale_factor=0.5, antialiasing=True)
             image = image * 255.
 
     features_parameters = np.concatenate(features_parameters, axis=1)
@@ -197,7 +198,7 @@ def niqe(image: np.ndarray,
     gaussian_window = niqe_model["gaussian_window"]
 
     # NIQE only tests on Y channel images and needs to convert the images
-    y_image = imgproc.bgr2ycbcr(image, only_use_y_channel=True)
+    y_image = imgproc.bgr_to_ycbcr(image, only_use_y_channel=True)
 
     # Convert data type to numpy.float64 bit
     y_image = y_image.astype(np.float64)
@@ -269,7 +270,7 @@ def _excact_padding_2d(tensor: torch.Tensor,
 
     mode = mode if mode != "same" else "constant"
     if mode != "symmetric":
-        tensor = F.pad(tensor, (pad_l, pad_r, pad_t, pad_b), mode=mode)
+        tensor = F_torch.pad(tensor, (pad_l, pad_r, pad_t, pad_b), mode=mode)
     elif mode == "symmetric":
         sym_h = torch.flip(tensor, [2])
         sym_w = torch.flip(tensor, [3])
@@ -329,7 +330,7 @@ def _image_filter(tensor: torch.Tensor,
     kernel_size = weight.shape[2:]
     exact_padding_2d = ExactPadding2d(kernel_size, stride, dilation, mode=padding)
 
-    return F.conv2d(exact_padding_2d(tensor), weight, bias, stride, dilation=dilation, groups=groups)
+    return F_torch.conv2d(exact_padding_2d(tensor), weight, bias, stride, dilation=dilation, groups=groups)
 
 
 def _reshape_input_torch(tensor: torch.Tensor) -> typing.Tuple[torch.Tensor, _I, _I, int, int]:
@@ -512,7 +513,7 @@ def _reshape_tensor_torch(tensor: torch.Tensor, dim: int, kernel_size: int) -> t
         h_out = tensor.size(-2)
         w_out = tensor.size(-1) - kernel_size + 1
 
-    unfold = F.unfold(tensor, k)
+    unfold = F_torch.unfold(tensor, k)
     unfold = unfold.view(unfold.size(0), -1, h_out, w_out)
     return unfold
 
@@ -608,7 +609,7 @@ def _downsampling_2d_torch(tensor: torch.Tensor, k: torch.Tensor, scale: int,
     pad_w = (k_w - scale) // 2
     tensor = _padding_torch(tensor, -2, pad_h, pad_h, padding_type=padding_type)
     tensor = _padding_torch(tensor, -1, pad_w, pad_w, padding_type=padding_type)
-    y = F.conv2d(tensor, k, padding=0, stride=scale)
+    y = F_torch.conv2d(tensor, k, padding=0, stride=scale)
     return y
 
 
@@ -705,11 +706,11 @@ def _blockproc_torch(x, kernel, fun, border_size=None, pad_partial=False, pad_me
         pad_col = (w2 - 1) * stride[1] + kernel[1] - w
         padding = (0, pad_col, 0, pad_row)
         if pad_method == 'zero':
-            x = F.pad(x, padding, mode='constant')
+            x = F_torch.pad(x, padding, mode='constant')
         elif pad_method == 'symmetric':
             x = _symm_pad_torch(x, padding)
         else:
-            x = F.pad(x, padding, mode=pad_method)
+            x = F_torch.pad(x, padding, mode=pad_method)
 
     if border_size is not None:
         raise NotImplementedError('Blockproc with border is not implemented yet')
@@ -720,7 +721,7 @@ def _blockproc_torch(x, kernel, fun, border_size=None, pad_partial=False, pad_me
         num_block_w = math.floor(w / block_size_w)
 
         # extract blocks in (row, column) manner, i.e., stored with column first
-        blocks = F.unfold(x, kernel, stride=kernel)
+        blocks = F_torch.unfold(x, kernel, stride=kernel)
         blocks = blocks.reshape(b, c, *kernel, num_block_h, num_block_w)
         blocks = blocks.permute(5, 4, 0, 1, 2, 3).reshape(num_block_h * num_block_w * b, c, *kernel)
 
@@ -896,7 +897,7 @@ def _fit_mscn_ipac_torch(tensor: torch.Tensor,
                          block_size_width: int,
                          kernel_size: int = 7,
                          kernel_sigma: float = 7. / 6,
-                         padding: str = "replicate") -> float:
+                         padding: str = "replicate") -> Tensor:
     """PyTorch implements the NIQE (Natural Image Quality Evaluator) function,
     This function is used to fit the inner product of adjacent coefficients of MSCN
 
@@ -958,7 +959,7 @@ def _niqe_torch(tensor: torch.Tensor,
                 niqe_model_path: str,
                 block_size_height: int = 96,
                 block_size_width: int = 96
-                ) -> torch.Tensor:
+                ) -> Tensor:
     """PyTorch implements the NIQE (Natural Image Quality Evaluator) function,
 
     Attributes:
@@ -977,7 +978,7 @@ def _niqe_torch(tensor: torch.Tensor,
         tensor = tensor[:, :, crop_border:-crop_border, crop_border:-crop_border]
 
     # Load the NIQE feature extraction model
-    niqe_model = scipy.io.loadmat(niqe_model_path)
+    niqe_model = loadmat(niqe_model_path)
 
     mu_pris_param = np.ravel(niqe_model["mu_prisparam"])
     cov_pris_param = niqe_model["cov_prisparam"]
@@ -988,7 +989,7 @@ def _niqe_torch(tensor: torch.Tensor,
     cov_pris_param = cov_pris_param.repeat(tensor.size(0), 1, 1)
 
     # NIQE only tests on Y channel images and needs to convert the images
-    y_tensor = imgproc.rgb2ycbcr_torch(tensor, only_use_y_channel=True)
+    y_tensor = imgproc.rgb_to_ycbcr_torch(tensor, only_use_y_channel=True)
     y_tensor *= 255.0
     y_tensor = y_tensor.round()
 
@@ -1028,7 +1029,7 @@ class NIQE(nn.Module):
         self.block_size_height = block_size_height
         self.block_size_width = block_size_width
 
-    def forward(self, raw_tensor: torch.Tensor) -> torch.Tensor:
+    def forward(self, raw_tensor: torch.Tensor) -> Tensor:
         niqe_metrics = _niqe_torch(raw_tensor,
                                    self.crop_border,
                                    self.niqe_model_path,
