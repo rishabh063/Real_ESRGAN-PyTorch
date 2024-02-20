@@ -83,7 +83,7 @@ class DegeneratedImageDataset(torch.utils.data.Dataset):
                 list(self.degradation_model_parameters_dict.PLATEAU_KERNEL_BETA_RANGE1),
                 noise_range=None)
         # First-order degenerate Gaussian fill kernel size
-        pad_size = (list(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE[-1]) - gaussian_kernel_size1) // 2
+        pad_size = (list(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE)[-1] - gaussian_kernel_size1) // 2
         gaussian_kernel1 = np.pad(gaussian_kernel1, ((pad_size, pad_size), (pad_size, pad_size)))
 
         # Generate a second-order degenerate Gaussian kernel

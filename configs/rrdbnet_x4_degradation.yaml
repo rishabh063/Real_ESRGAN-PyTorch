@@ -43,11 +43,11 @@ DEGRADATION_PROCESS_PARAMETERS_DICT:
   JPEG_RANGE2: [ 30, 95 ]
 
 DATASET:
-  TRAIN_GT_IMAGES_DIR: "/home/dl/Dataset/DFO2K/sub_image_384x384"
+  TRAIN_GT_IMAGES_DIR: "/home/dl/Datasets/DFO2K/sub_image_384x384"
   TRAIN_LR_IMAGES_DIR: ""
 
-  VAL_GT_IMAGES_DIR: "/home/dlDataset/Set5/GTmod12"
-  VAL_LR_IMAGES_DIR: "/home/dl/Dataset/Set5/LRbicx4"
+  VAL_GT_IMAGES_DIR: "/home/dl/Datasets/Set5/GTmod12"
+  VAL_LR_IMAGES_DIR: "/home/dl/Datasets/Set5/LRbicx4"
 
 MODEL:
   G:

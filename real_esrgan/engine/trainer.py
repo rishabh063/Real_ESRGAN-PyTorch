@@ -19,6 +19,10 @@ from omegaconf import DictConfig, OmegaConf
 from real_esrgan.data.degenerated_image_dataset import DegeneratedImageDataset
 from real_esrgan.data.paired_image_dataset import PairedImageDataset
 from real_esrgan.data.prefetcher import CUDAPrefetcher, CPUPrefetcher
+from real_esrgan.layers.ema import ModelEMA
+from real_esrgan.models import RRDBNet
+from real_esrgan.utils import get_model_info
+from real_esrgan.utils.checkpoint import load_state_dict
 from real_esrgan.utils.envs import select_device, set_seed_everything
 from real_esrgan.utils.events import LOGGER
 from real_esrgan.utils.general import increment_name, find_last_checkpoint
@@ -142,6 +146,10 @@ class Trainer:
         self.train_dataloader, self.val_dataloader = self.get_dataloader()
         self.num_train_batch = len(self.train_dataloader)
 
+        # model
+        self.g_model = self.get_g_model()
+        self.ema = ModelEMA(self.g_model)
+
     def get_dataloader(self):
         if self.mode == "degradation":
             train_datasets = DegeneratedImageDataset(self.dataset_train_gt_images_dir,
@@ -175,6 +183,26 @@ class Trainer:
             train_dataloader = CPUPrefetcher(train_dataloader)
             val_dataloader = CPUPrefetcher(val_dataloader)
         return train_dataloader, val_dataloader
+
+    def get_g_model(self):
+        if self.model_g_type == "rrdbnet_x4":
+            g_model = RRDBNet(self.model_g_in_channels,
+                              self.model_g_out_channels,
+                              self.model_g_channels,
+                              self.model_g_growth_channels,
+                              self.model_g_num_rrdb)
+        else:
+            raise NotImplementedError(f"Model type {self.model_g_type} is not implemented.")
+        g_model = g_model.to(self.device)
+        if self.g_weights_path:
+            LOGGER.info(f"Loading state_dict from {self.g_weights_path} for fine-tuning...")
+            g_model = load_state_dict(self.g_weights_path, g_model, map_location=self.device)
+
+        if self.verbose:
+            LOGGER.info(f"model: {g_model}")
+            model_info = get_model_info(g_model, self.train_config_dict.IMAGE_SIZE, self.device)
+            LOGGER.info(f"model summary: {model_info}")
+        return g_model
 
     def train_psnr(self):
         pass
