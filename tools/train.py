@@ -1,0 +1,54 @@
+# Copyright Lornatang. All Rights Reserved.
+# Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+import argparse
+
+from omegaconf import OmegaConf
+
+from real_esrgan.engine.trainer import Trainer, init_train_env
+
+
+def get_opts() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "config_path",
+        metavar="FILE",
+        help="path to config file",
+    )
+    parser.add_argument(
+        "--mode",
+        default="psnr",
+        type=str,
+        choices=["psnr", "gan"],
+        help="mode to run. Choices are psnr, gan. Default is psnr",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    opts = get_opts()
+    config_path = opts.config_path
+    mode = opts.mode
+
+    config_dict = OmegaConf.load(config_path)
+    config_dict, device = init_train_env(config_dict)
+
+    trainer = Trainer(config_dict, device)
+    if mode == "psnr":
+        trainer.train_psnr()
+    else:
+        trainer.train_gan()
+
+
+if __name__ == "__main__":
+    main()

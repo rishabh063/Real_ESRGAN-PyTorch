@@ -11,14 +11,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import glob
 import logging
+import os
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional
 
 from torchvision.datasets.folder import IMG_EXTENSIONS
 
 __all__ = [
-    "check_dir", "get_all_filenames"
+    "check_dir", "find_last_checkpoint", "get_all_filenames", "increment_name",
 ]
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,23 @@ def check_dir(dir_path: Union[str, Path]) -> None:
         raise TypeError(f"'{dir_path}' is not a directory.")
 
 
+def find_last_checkpoint(search_dir: Optional[str] = ".") -> str:
+    r"""Find the most recent saved checkpoint in search_dir.
+
+    Args:
+        search_dir (Optional[str], optional): The directory to search for the checkpoint files. Defaults to ".".
+
+    Returns:
+        str: The path to the most recent checkpoint file. If no checkpoint files are found, returns an empty string.
+    """
+    # Use glob to find all the checkpoint files in the search directory
+    checkpoint_list = glob.glob(f"{search_dir}/**/last*.pt", recursive=True)
+
+    # If checkpoint files are found, return the most recent one
+    # If no checkpoint files are found, return an empty string
+    return max(checkpoint_list, key=os.path.getctime) if checkpoint_list else ""
+
+
 def get_all_filenames(path: str | Path, image_extensions: tuple = None) -> list:
     r"""Get all file names in the input folder.
 
@@ -58,3 +77,31 @@ def get_all_filenames(path: str | Path, image_extensions: tuple = None) -> list:
     file_names = [p.name for p in file_paths if p.suffix in image_extensions]
 
     return file_names
+
+
+def increment_name(path: str | Path) -> Path:
+    r"""Increase the save directory"s id if the path already exists.
+
+    Args:
+        path (str or Path): The path to the directory.
+
+    Returns:
+        Path: The updated path with an incremented id if the original path already exists.
+    """
+    # Convert the path to a Path object
+    if isinstance(path, str):
+        path = Path(path)
+    separator = ""
+
+    # If the path already exists, increment the id
+    if path.exists():
+        # If the path is a file, remove the suffix
+        path, suffix = (path.with_suffix(""), path.suffix) if path.is_file() else (path, "")
+        new_path = path
+        for number in range(1, 9999):
+            new_path = f"{path}{separator}{number}{suffix}"
+            if not os.path.exists(new_path):
+                break
+        path = Path(new_path)
+
+    return path

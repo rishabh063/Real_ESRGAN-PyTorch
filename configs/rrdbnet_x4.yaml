@@ -1,0 +1,3 @@
+DEVICE: "0" # "0" means GPU 0, "0,1" means GPU 0 and 1, etc.
+EXP_NAME: "rrdbnet_x4-DFO2K" # Name of the experiment
+
