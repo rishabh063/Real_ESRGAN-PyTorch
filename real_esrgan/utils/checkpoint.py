@@ -48,13 +48,12 @@ def load_state_dict(weights_path: str, model: nn.Module, map_location: torch.dev
     return model
 
 
-def load_checkpoint(weights_path: str | Path, map_location: torch.device | str = torch.device("cpu"), fuse: bool = True) -> torch.nn.Module:
+def load_checkpoint(weights_path: str | Path, map_location: torch.device | str = torch.device("cpu")) -> torch.nn.Module:
     r"""Load model from a checkpoint file.
 
     Args:
         weights_path (str or Path): Path to the weights file.
         map_location (torch.device, optional): The device to load the weights to. Defaults to torch.device("cpu").
-        fuse (bool, optional): Whether to fuse the model for inference. Defaults to True.
 
     Returns:
         torch.nn.Module: The model with the weights loaded.
@@ -109,7 +108,7 @@ def strip_optimizer(checkpoint_path: str | Path, epoch: int) -> None:
     checkpoint = torch.load(checkpoint_path, map_location=torch.device("cpu"))
     if checkpoint.get("ema"):
         checkpoint["model"] = checkpoint["ema"]  # replace model with ema
-    for k in ["optimizer", "ema", "updates"]:  # keys
+    for k in ["optimizer", "scheduler", "ema", "updates"]:  # keys
         checkpoint[k] = None
     checkpoint["epoch"] = epoch
     checkpoint["model"].half()  # to FP16

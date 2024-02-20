@@ -73,10 +73,10 @@ class RRDBNet(nn.Module):
                     nn.init.constant_(module.bias, 0)
 
     def forward(self, x: Tensor) -> Tensor:
-        out1 = self.conv_1(x)
-        out = self.trunk(out1)
-        out2 = self.conv_2(out)
-        out = torch.add(out1, out2)
+        conv_1 = self.conv_1(x)
+        out = self.trunk(conv_1)
+        conv_2 = self.conv_2(out)
+        out = torch.add(conv_1, conv_2)
 
         out = self.up_sampling_1(F_torch.interpolate(out, scale_factor=2, mode="nearest"))
         out = self.up_sampling_2(F_torch.interpolate(out, scale_factor=2, mode="nearest"))

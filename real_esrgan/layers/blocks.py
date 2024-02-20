@@ -12,7 +12,7 @@
 # limitations under the License.
 # ==============================================================================
 import torch
-from torch import nn
+from torch import Tensor, nn
 
 __all__ = [
     "ResidualDenseBlock", "ResidualResidualDenseBlock",
@@ -30,11 +30,11 @@ class ResidualDenseBlock(nn.Module):
 
     def __init__(self, channels: int, growth_channels: int) -> None:
         super(ResidualDenseBlock, self).__init__()
-        self.conv1 = nn.Conv2d(channels + growth_channels * 0, growth_channels, (3, 3), (1, 1), (1, 1))
-        self.conv2 = nn.Conv2d(channels + growth_channels * 1, growth_channels, (3, 3), (1, 1), (1, 1))
-        self.conv3 = nn.Conv2d(channels + growth_channels * 2, growth_channels, (3, 3), (1, 1), (1, 1))
-        self.conv4 = nn.Conv2d(channels + growth_channels * 3, growth_channels, (3, 3), (1, 1), (1, 1))
-        self.conv5 = nn.Conv2d(channels + growth_channels * 4, channels, (3, 3), (1, 1), (1, 1))
+        self.conv_1 = nn.Conv2d(channels + growth_channels * 0, growth_channels, (3, 3), (1, 1), (1, 1))
+        self.conv_2 = nn.Conv2d(channels + growth_channels * 1, growth_channels, (3, 3), (1, 1), (1, 1))
+        self.conv_3 = nn.Conv2d(channels + growth_channels * 2, growth_channels, (3, 3), (1, 1), (1, 1))
+        self.conv_4 = nn.Conv2d(channels + growth_channels * 3, growth_channels, (3, 3), (1, 1), (1, 1))
+        self.conv_5 = nn.Conv2d(channels + growth_channels * 4, channels, (3, 3), (1, 1), (1, 1))
 
         self.leaky_relu = nn.LeakyReLU(0.2, True)
         self.identity = nn.Identity()
@@ -42,18 +42,16 @@ class ResidualDenseBlock(nn.Module):
         # Initialize model weights.
         self._initialize_weights()
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         identity = x
 
-        out1 = self.leaky_relu(self.conv1(x))
-        out2 = self.leaky_relu(self.conv2(torch.cat([x, out1], 1)))
-        out3 = self.leaky_relu(self.conv3(torch.cat([x, out1, out2], 1)))
-        out4 = self.leaky_relu(self.conv4(torch.cat([x, out1, out2, out3], 1)))
-        out5 = self.identity(self.conv5(torch.cat([x, out1, out2, out3, out4], 1)))
-        out = torch.mul(out5, 0.2)
-        out = torch.add(out, identity)
-
-        return out
+        out_1 = self.leaky_relu(self.conv_1(x))
+        out_2 = self.leaky_relu(self.conv_2(torch.cat([x, out_1], 1)))
+        out_3 = self.leaky_relu(self.conv_3(torch.cat([x, out_1, out_2], 1)))
+        out_4 = self.leaky_relu(self.conv_4(torch.cat([x, out_1, out_2, out_3], 1)))
+        out_5 = self.identity(self.conv_5(torch.cat([x, out_1, out_2, out_3, out_4], 1)))
+        out = torch.mul(out_5, 0.2)
+        return torch.add(out, identity)
 
     def _initialize_weights(self) -> None:
         for module in self.modules():
@@ -74,17 +72,15 @@ class ResidualResidualDenseBlock(nn.Module):
 
     def __init__(self, channels: int, growth_channels: int) -> None:
         super(ResidualResidualDenseBlock, self).__init__()
-        self.rdb1 = ResidualDenseBlock(channels, growth_channels)
-        self.rdb2 = ResidualDenseBlock(channels, growth_channels)
-        self.rdb3 = ResidualDenseBlock(channels, growth_channels)
+        self.rdb_1 = ResidualDenseBlock(channels, growth_channels)
+        self.rdb_2 = ResidualDenseBlock(channels, growth_channels)
+        self.rdb_3 = ResidualDenseBlock(channels, growth_channels)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         identity = x
 
-        out = self.rdb1(x)
-        out = self.rdb2(out)
-        out = self.rdb3(out)
+        out = self.rdb_1(x)
+        out = self.rdb_2(out)
+        out = self.rdb_3(out)
         out = torch.mul(out, 0.2)
-        out = torch.add(out, identity)
-
-        return out
+        return torch.add(out, identity)
