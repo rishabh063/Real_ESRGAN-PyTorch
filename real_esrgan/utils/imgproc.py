@@ -160,7 +160,7 @@ class USMSharp(nn.Module):
         kernel = torch.FloatTensor(np.dot(kernel, kernel.transpose())).unsqueeze_(0)
         self.register_buffer("kernel", kernel)
 
-    def forward(self, x: Tensor, weight: float, threshold: int) -> Tensor:
+    def forward(self, x: Tensor, weight: float = 0.5, threshold: int = 10) -> Tensor:
         usm_blur = filter2D_torch(x, self.kernel)
         residual = x - usm_blur
 

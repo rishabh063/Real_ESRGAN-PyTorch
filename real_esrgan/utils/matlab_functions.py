@@ -11,15 +11,68 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import collections
 import math
+from itertools import repeat
 
 import numpy as np
 import torch
 from torch import Tensor
 
 __all__ = [
-    "image_resize",
+    "fspecial_gaussian", "image_resize",
 ]
+
+
+def _to_tuple(dim: int):
+    r"""Convert the input to a tuple
+
+    Args:
+        dim (int): the dimension of the input
+    """
+    def parse(x):
+        if isinstance(x, collections.abc.Iterable):
+            return x
+        return tuple(repeat(x, dim))
+
+    return parse
+
+
+def fspecial_gaussian(
+        window_size: int,
+        sigma: float,
+        channels: int = 3,
+        filter_type: int = 0,
+) -> Tensor:
+    r"""PyTorch implements the fspecial_gaussian() function in MATLAB
+
+    Args:
+        window_size (int): Gaussian filter size
+        sigma (float): sigma parameter in Gaussian filter
+        channels (int): number of image channels, default: ``3``
+        filter_type (int): filter type, 0: Gaussian filter, 1: mean filter, default: ``0``
+
+    Returns:
+        gaussian_kernel_window (Tensor): Gaussian filter
+    """
+    # Gaussian filter processing
+    if filter_type == 0:
+        shape = _to_tuple(2)(window_size)
+        m, n = [(ss - 1.) / 2. for ss in shape]
+        y, x = np.ogrid[-m:m + 1, -n:n + 1]
+        g = np.exp(-(x * x + y * y) / (2. * sigma * sigma))
+        g[g < np.finfo(g.dtype).eps * g.max()] = 0
+        sum_height = g.sum()
+
+        if sum_height != 0:
+            g /= sum_height
+
+        g = torch.from_numpy(g).float().repeat(channels, 1, 1, 1)
+
+        return g
+    # mean filter processing
+    elif filter_type == 1:
+        raise NotImplementedError(f"Only support `gaussian filter`, got {filter_type}")
 
 
 def image_resize(

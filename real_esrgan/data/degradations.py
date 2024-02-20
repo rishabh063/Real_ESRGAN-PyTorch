@@ -16,6 +16,7 @@ import random
 import cv2
 import numpy as np
 import torch
+from omegaconf import DictConfig
 from scipy import special
 from scipy.stats import multivariate_normal
 from torch import Tensor, nn
@@ -35,7 +36,7 @@ def degradation_process(
         gaussian_kernel2: Tensor,
         sinc_kernel: Tensor,
         upscale_factor: int,
-        degradation_process_parameters_dict: dict,
+        degradation_process_parameters_dict: DictConfig,
         jpeg_operation: nn.Module = None,
         usm_sharpener: nn.Module = None,
 ) -> tuple[Tensor, Tensor, Tensor]:
@@ -47,7 +48,7 @@ def degradation_process(
         gaussian_kernel2 (Tensor): The Gaussian kernel used for the second degradation
         sinc_kernel (Tensor): Sinc kernel used for degradation
         upscale_factor (int): zoom factor
-        degradation_process_parameters_dict (dict): A dictionary containing degradation processing parameters
+        degradation_process_parameters_dict (DictConfig): A dictionary containing degradation processing parameters
         jpeg_operation (nn.Module): JPEG compression model. Default: ``None``
         usm_sharpener (nn.Module): USM sharpening model. Default: ``None``
 
@@ -69,53 +70,53 @@ def degradation_process(
 
     # The first degradation processing
     # Gaussian
-    if np.random.uniform() <= degradation_process_parameters_dict["first_blur_probability"]:
+    if np.random.uniform() <= degradation_process_parameters_dict.FIRST_BLUR_PROBABILITY:
         out = filter2D_torch(gt_usm, gaussian_kernel1)
 
     # Resize
-    updown_type = random.choices(["up", "down", "keep"], degradation_process_parameters_dict["resize_probability1"])[0]
+    updown_type = random.choices(["up", "down", "keep"], list(degradation_process_parameters_dict.RESIZE_PROBABILITY1))[0]
     if updown_type == "up":
-        scale = np.random.uniform(1, degradation_process_parameters_dict["resize_range1"][1])
+        scale = np.random.uniform(1, list(degradation_process_parameters_dict.RESIZE_RANGE1)[1])
     elif updown_type == "down":
-        scale = np.random.uniform(degradation_process_parameters_dict["resize_range1"][0], 1)
+        scale = np.random.uniform(list(degradation_process_parameters_dict.RESIZE_RANGE1)[0], 1)
     else:
         scale = 1
     mode = random.choice(["area", "bilinear", "bicubic"])
     out = F_torch.interpolate(out, scale_factor=scale, mode=mode)
 
     # noise
-    if np.random.uniform() < degradation_process_parameters_dict["gaussian_noise_probability1"]:
+    if np.random.uniform() < degradation_process_parameters_dict.GAUSSIAN_NOISE_PROBABILITY1:
         out = random_add_gaussian_noise_torch(
             image=out,
-            sigma_range=degradation_process_parameters_dict["noise_range1"],
+            sigma_range=tuple(degradation_process_parameters_dict.NOISE_RANGE1),
             clip=True,
             rounds=False,
-            gray_prob=degradation_process_parameters_dict["gray_noise_probability1"])
+            gray_prob=degradation_process_parameters_dict.GRAY_NOISE_PROBABILITY1)
     else:
         out = random_add_poisson_noise_torch(
             image=out,
-            scale_range=degradation_process_parameters_dict["poisson_scale_range1"],
-            gray_prob=degradation_process_parameters_dict["gray_noise_probability1"],
+            scale_range=tuple(degradation_process_parameters_dict.POISSON_SCALE_RANGE1),
+            gray_prob=degradation_process_parameters_dict.GRAY_NOISE_PROBABILITY1,
             clip=True,
             rounds=False)
 
     # JPEG compression
     quality = out.new_zeros(out.size(0))
-    quality = quality.uniform_(*degradation_process_parameters_dict["jpeg_range1"])
+    quality = quality.uniform_(*list(degradation_process_parameters_dict.JPEG_RANGE1))
     out = torch.clamp(out, 0, 1)  # clamp to [0, 1], otherwise JPEGer will result in unpleasant artifacts
     out = jpeg_operation(out, quality)
 
     # second degradation processing
     # Gaussian
-    if np.random.uniform() < degradation_process_parameters_dict["second_blur_probability"]:
+    if np.random.uniform() < degradation_process_parameters_dict.SECOND_BLUR_PROBABILITY:
         out = filter2D_torch(out, gaussian_kernel2)
 
     # Resize
-    updown_type = random.choices(["up", "down", "keep"], degradation_process_parameters_dict["resize_probability2"])[0]
+    updown_type = random.choices(["up", "down", "keep"], list(degradation_process_parameters_dict.RESIZE_PROBABILITY2))[0]
     if updown_type == "up":
-        scale = np.random.uniform(1, degradation_process_parameters_dict["resize_range2"][1])
+        scale = np.random.uniform(1, list(degradation_process_parameters_dict.RESIZE_RANGE2)[1])
     elif updown_type == "down":
-        scale = np.random.uniform(degradation_process_parameters_dict["resize_range2"][0], 1)
+        scale = np.random.uniform(list(degradation_process_parameters_dict.RESIZE_RANGE2)[0], 1)
     else:
         scale = 1
     mode = random.choice(["area", "bilinear", "bicubic"])
@@ -125,18 +126,18 @@ def degradation_process(
                               mode=mode)
 
     # Noise
-    if np.random.uniform() < degradation_process_parameters_dict["gaussian_noise_probability2"]:
+    if np.random.uniform() < degradation_process_parameters_dict.GAUSSIAN_NOISE_PROBABILITY2:
         out = random_add_gaussian_noise_torch(
             image=out,
-            sigma_range=degradation_process_parameters_dict["noise_range2"],
+            sigma_range=tuple(degradation_process_parameters_dict.NOISE_RANGE2),
             clip=True,
             rounds=False,
-            gray_prob=degradation_process_parameters_dict["gray_noise_probability2"])
+            gray_prob=degradation_process_parameters_dict.GRAY_NOISE_PROBABILITY2)
     else:
         out = random_add_poisson_noise_torch(
             image=out,
-            scale_range=degradation_process_parameters_dict["poisson_scale_range2"],
-            gray_prob=degradation_process_parameters_dict["gray_noise_probability2"],
+            scale_range=tuple(degradation_process_parameters_dict.POISSON_SCALE_RANGE2),
+            gray_prob=degradation_process_parameters_dict.GRAY_NOISE_PROBABILITY2,
             clip=True,
             rounds=False)
 
@@ -149,13 +150,13 @@ def degradation_process(
         out = filter2D_torch(out, sinc_kernel)
 
         quality = out.new_zeros(out.size(0))
-        quality = quality.uniform_(*degradation_process_parameters_dict["jpeg_range2"])
+        quality = quality.uniform_(*list(degradation_process_parameters_dict.JPEG_RANGE2))
         out = torch.clamp(out, 0, 1)
         out = jpeg_operation(out, quality)
     else:
         # JPEG compression -> reduction -> Sinc filter
         quality = out.new_zeros(out.size(0))
-        quality = quality.uniform_(*degradation_process_parameters_dict["jpeg_range2"])
+        quality = quality.uniform_(*list(degradation_process_parameters_dict.JPEG_RANGE2))
         out = torch.clamp(out, 0, 1)
         out = jpeg_operation(out, quality)
 
@@ -1003,7 +1004,7 @@ def _generate_poisson_noise_torch(image: Tensor,
 
 def _random_generate_gaussian_noise_torch(image: Tensor,
                                           sigma_range: tuple = (0, 10),
-                                          gray_prob: Tensor = 0) -> Tensor:
+                                          gray_prob: int = 0) -> Tensor:
     """Random generate gaussian noise (PyTorch)
 
     Args:

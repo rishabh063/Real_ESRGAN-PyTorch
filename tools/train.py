@@ -25,29 +25,18 @@ def get_opts() -> argparse.Namespace:
         metavar="FILE",
         help="path to config file",
     )
-    parser.add_argument(
-        "--mode",
-        default="psnr",
-        type=str,
-        choices=["psnr", "gan"],
-        help="mode to run. Choices are psnr, gan. Default is psnr",
-    )
     return parser.parse_args()
 
 
 def main() -> None:
     opts = get_opts()
     config_path = opts.config_path
-    mode = opts.mode
 
     config_dict = OmegaConf.load(config_path)
     config_dict, device = init_train_env(config_dict)
 
     trainer = Trainer(config_dict, device)
-    if mode == "psnr":
-        trainer.train_psnr()
-    else:
-        trainer.train_gan()
+    trainer.train()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 DEVICE: "0" # "0" means GPU 0, "0,1" means GPU 0 and 1, etc.
 EXP_NAME: "rrdbnet_x4-DFO2K" # Name of the experiment
-MODE: "degradation" # degradation, paired
+PHASE: "psnr" # psnr, gan
+UPSCALE_FACTOR: 4
 
 DEGRADATION_MODEL_PARAMETERS_DICT:
   SINC_KERNEL_SIZE: 21
@@ -43,6 +44,7 @@ DEGRADATION_PROCESS_PARAMETERS_DICT:
   JPEG_RANGE2: [ 30, 95 ]
 
 DATASET:
+  MODE: "degradation" # degradation, paired
   TRAIN_GT_IMAGES_DIR: "/home/dl/Datasets/DFO2K/sub_image_384x384"
   TRAIN_LR_IMAGES_DIR: ""
 
@@ -66,21 +68,22 @@ TRAIN:
 
   # train datasets
   IMAGE_SIZE: 256
-  BATCH_SIZE: 48
+  BATCH_SIZE: 16
   NUM_WORKERS: 4
 
   # train solver
   SOLVER:
-    OPTIM: "Adam"
-    LR: 0.0002
-    BETAS: [ 0.9, 0.99 ]
-    EPS: 0.0001 # Ensure mixed precision training does not appear Nan
-    WEIGHT_DECAY: 0.0
+    G:
+      OPTIM: "Adam"
+      LR: 0.0002
+      BETAS: [ 0.9, 0.99 ]
+      EPS: 0.0001 # Ensure mixed precision training does not appear Nan
+      WEIGHT_DECAY: 0.0
 
-    LR_SCHEDULER:
-      TYPE: "StepLR"
-      STEP_SIZE: 200  # epochs / 5
-      GAMMA: 0.5
+      LR_SCHEDULER:
+        TYPE: "StepLR"
+        STEP_SIZE: 200  # epochs / 5
+        GAMMA: 0.5
 
   # loss config
   LOSS:

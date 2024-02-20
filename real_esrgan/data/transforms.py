@@ -236,7 +236,7 @@ def random_crop_torch(
     input_type = "Tensor" if torch.is_tensor(lr_images[0]) else "Numpy"
 
     if input_type == "Tensor":
-        lr_image_height, lr_image_width = lr_images[0].size[-2:]
+        lr_image_height, lr_image_width = lr_images[0].size()[-2:]
     else:
         lr_image_height, lr_image_width = lr_images[0].shape[0:2]
 

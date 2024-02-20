@@ -17,10 +17,11 @@ import os
 from pathlib import Path
 from typing import Union, Optional
 
+from torch import Tensor
 from torchvision.datasets.folder import IMG_EXTENSIONS
 
 __all__ = [
-    "check_dir", "find_last_checkpoint", "get_all_filenames", "increment_name",
+    "check_dir", "check_tensor_shape", "find_last_checkpoint", "get_all_filenames", "increment_name",
 ]
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,18 @@ def check_dir(dir_path: Union[str, Path]) -> None:
 
     if not dir_path.is_dir():
         raise TypeError(f"'{dir_path}' is not a directory.")
+
+
+def check_tensor_shape(raw_tensor: Tensor, dst_tensor: Tensor):
+    """Check if the dimensions of the two tensors are the same
+
+    Args:
+        raw_tensor (np.ndarray or Tensor): tensor flow of images to be compared, RGB format, data range [0, 1]
+        dst_tensor (np.ndarray or Tensor): reference image tensor flow, RGB format, data range [0, 1]
+    """
+
+    # Check if the tensor scale is consistent
+    assert raw_tensor.shape == dst_tensor.shape, f"Supplied images have different sizes {str(raw_tensor.shape)} and {str(dst_tensor.shape)}"
 
 
 def find_last_checkpoint(search_dir: Optional[str] = ".") -> str:

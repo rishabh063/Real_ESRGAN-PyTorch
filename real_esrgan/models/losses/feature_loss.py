@@ -18,11 +18,11 @@ from torchvision import models, transforms
 from torchvision.models.feature_extraction import create_feature_extractor
 
 __all__ = [
-    "ContentLoss",
+    "FeatureLoss",
 ]
 
 
-class ContentLoss(nn.Module):
+class FeatureLoss(nn.Module):
     """Constructs a content loss function based on the VGG19 network.
     Using high-level feature mapping layers from the latter layers will focus more on the texture content of the image.
 
@@ -39,7 +39,7 @@ class ContentLoss(nn.Module):
             feature_model_normalize_mean: list,
             feature_model_normalize_std: list,
     ) -> None:
-        super(ContentLoss, self).__init__()
+        super(FeatureLoss, self).__init__()
         # Get the name of the specified feature extraction node
         self.feature_model_extractor_nodes = feature_model_extractor_nodes
         # Load the VGG19 model trained on the ImageNet dataset.

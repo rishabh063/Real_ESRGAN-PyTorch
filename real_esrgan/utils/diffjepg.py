@@ -22,6 +22,17 @@ __all__ = [
     "DiffJPEG",
 ]
 
+y_table = np.array(
+    [[16, 11, 10, 16, 24, 40, 51, 61], [12, 12, 14, 19, 26, 58, 60, 55], [14, 13, 16, 24, 40, 57, 69, 56],
+     [14, 17, 22, 29, 51, 87, 80, 62], [18, 22, 37, 56, 68, 109, 103, 77], [24, 35, 55, 64, 81, 104, 113, 92],
+     [49, 64, 78, 87, 103, 121, 120, 101], [72, 92, 95, 98, 112, 100, 103, 99]],
+    dtype=np.float32).T
+y_table = nn.Parameter(torch.from_numpy(y_table))
+c_table = np.empty((8, 8), dtype=np.float32)
+c_table.fill(99)
+c_table[:4, :4] = np.array([[17, 18, 24, 47], [18, 21, 26, 66], [24, 26, 56, 99], [47, 66, 99, 99]]).T
+c_table = nn.Parameter(torch.from_numpy(c_table))
+
 
 class DiffJPEG(nn.Module):
     def __init__(self, differentiable: bool = False) -> None:
@@ -54,26 +65,6 @@ class DiffJPEG(nn.Module):
         y, cb, cr = self.compress(x, factor)
         out = self.decompress(y, cb, cr, (height + height_pad), (width + width_pad), factor)
         return out[:, :, 0:height, 0:width]
-
-
-y_table = nn.Parameter(torch.tensor([
-    [16, 11, 10, 16, 24, 40, 51, 61],
-    [12, 12, 14, 19, 26, 58, 60, 55],
-    [14, 13, 16, 24, 40, 57, 69, 56],
-    [14, 17, 22, 29, 51, 87, 80, 62],
-    [18, 22, 37, 56, 68, 109, 103, 77],
-    [24, 35, 55, 64, 81, 104, 113, 92],
-    [49, 64, 78, 87, 103, 121, 120, 101],
-    [72, 92, 95, 98, 112, 100, 103, 99]], dtype=torch.float32).T)
-c_table = nn.Parameter(torch.tensor([
-    [17, 18, 24, 47],
-    [18, 21, 26, 66],
-    [24, 26, 56, 99],
-    [47, 66, 99, 99],
-    [99, 99, 99, 99],
-    [99, 99, 99, 99],
-    [99, 99, 99, 99],
-    [99, 99, 99, 99]], dtype=torch.float32))
 
 
 def _calculate_quality_factor(quality: int) -> float:
@@ -113,6 +104,10 @@ class _RGBToYCbCr(nn.Module):
         self.matrix = torch.tensor([[0.299, 0.587, 0.114], [-0.168736, -0.331264, 0.5], [0.5, -0.418688, -0.081312]], dtype=torch.float32).T
 
     def forward(self, x: Tensor) -> Tensor:
+        device = x.device
+        self.matrix = self.matrix.to(device)
+        self.shift = self.shift.to(device)
+
         x = x.permute(0, 2, 3, 1)
         out = torch.tensordot(x, self.matrix, dims=1) + self.shift
         return out.view(x.shape)
@@ -307,6 +302,10 @@ class _YCbCrToRGB(nn.Module):
         self.shift = torch.tensor([0, -128., -128.]).to(torch.float32)
 
     def forward(self, x: Tensor) -> Tensor:
+        device = x.device
+        self.matrix = self.matrix.to(device)
+        self.shift = self.shift.to(device)
+
         out = torch.tensordot(x + self.shift, self.matrix, dims=1)
         return out.view(x.shape).permute(0, 3, 1, 2)
 
