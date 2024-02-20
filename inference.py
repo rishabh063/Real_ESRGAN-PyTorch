@@ -15,11 +15,13 @@ import argparse
 import os
 
 import cv2
+import numpy as np
 import torch
 from torch import nn
 
 import imgproc
 import model
+from real_esrgan.utils.imgproc import image_to_tensor
 from utils import load_state_dict
 
 
@@ -58,7 +60,17 @@ def main(args):
     # Start the verification mode of the model.
     g_model.eval()
 
-    lr_tensor = imgproc.preprocess_one_image(args.inputs_path, device)
+    # read an image using OpenCV
+    lr_image = cv2.imread(args.inputs_path).astype(np.float32) / 255.0
+
+    # BGR image channel data to RGB image channel data
+    lr_image = cv2.cvtColor(lr_image, cv2.COLOR_BGR2RGB)
+
+    # Convert RGB image channel data to image formats supported by PyTorch
+    lr_tensor = image_to_tensor(lr_image, False, False).unsqueeze_(0)
+
+    # Data transfer to the specified device
+    lr_tensor = lr_tensor.to(device=device, non_blocking=True)
 
     # Use the model to generate super-resolved images
     with torch.no_grad():
