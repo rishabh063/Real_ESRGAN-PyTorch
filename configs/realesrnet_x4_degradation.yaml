@@ -45,11 +45,11 @@ DEGRADATION_PROCESS_PARAMETERS_DICT:
 
 DATASET:
   MODE: "degradation" # degradation, paired
-  TRAIN_GT_IMAGES_DIR: "/home/dl/Datasets/DFO2K/sub_image_384x384"
+  TRAIN_GT_IMAGES_DIR: "data/DFO2K/sub_image_384x384"
   TRAIN_LR_IMAGES_DIR: ""
 
-  VAL_GT_IMAGES_DIR: "/home/dl/Datasets/Set5/X4/GT"
-  VAL_LR_IMAGES_DIR: "/home/dl/Datasets/Set5/X4/LR"
+  VAL_GT_IMAGES_DIR: "data/Set5/X4/GT"
+  VAL_LR_IMAGES_DIR: "data/Set5/X4/LR"
 
 MODEL:
   G:
@@ -82,7 +82,7 @@ TRAIN:
 
       LR_SCHEDULER:
         TYPE: "StepLR"
-        STEP_SIZE: 200  # epochs / 5
+        STEP_SIZE: 17  # epochs / 5
         GAMMA: 0.5
 
   # loss config
@@ -92,7 +92,7 @@ TRAIN:
       WEIGHT: [ 1.0 ]
 
   # train hyper-parameters
-  EPOCHS: 1000
+  EPOCHS: 85  # 85 * 11869 = 1,008,865 ~= 1,000,000 iters
 
   # train setup
   LOCAL_RANK: -1
