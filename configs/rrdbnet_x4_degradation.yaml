@@ -48,8 +48,8 @@ DATASET:
   TRAIN_GT_IMAGES_DIR: "/home/dl/Datasets/DFO2K/sub_image_384x384"
   TRAIN_LR_IMAGES_DIR: ""
 
-  VAL_GT_IMAGES_DIR: "/home/dl/Datasets/Set5/GTmod12"
-  VAL_LR_IMAGES_DIR: "/home/dl/Datasets/Set5/LRbicx4"
+  VAL_GT_IMAGES_DIR: "/home/dl/Datasets/Set5/X4/GT"
+  VAL_LR_IMAGES_DIR: "/home/dl/Datasets/Set5/X4/LR"
 
 MODEL:
   G:
@@ -105,4 +105,7 @@ TRAIN:
   VERBOSE: True
 
 EVAL:
-  WEIGHTS_PATH: ""
+  WEIGHTS_PATH: "realesrnet_x4-dfo2k.pkl"
+  NIQE_WEIGHTS_PATH: "results/pretrained_models/niqe_model.mat"
+  HALF: True
+  ONLY_TEST_Y_CHANNEL: True

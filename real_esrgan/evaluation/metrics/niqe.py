@@ -15,6 +15,7 @@ import collections.abc
 import math
 import typing
 from itertools import repeat
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -29,7 +30,7 @@ from real_esrgan.utils.color import rgb_to_ycbcr_torch, bgr_to_ycbcr
 from real_esrgan.utils.matlab_functions import image_resize
 
 __all__ = [
-    "niqe",
+    "niqe", "niqe_torch",
     "NIQE",
 ]
 
@@ -83,12 +84,19 @@ def niqe(image: np.ndarray,
     return niqe_metric
 
 
-class NIQE(nn.Module):
+def niqe_torch(
+        tensor: torch.Tensor,
+        crop_border: int = 0,
+        niqe_weights_path: str = "",
+        block_size_height: int = 96,
+        block_size_width: int = 96
+) -> Tensor:
     """PyTorch implements the NIQE (Natural Image Quality Evaluator) function,
 
     Attributes:
+        tensor (torch.Tensor): The image to evaluate the sharpness of the BRISQUE
         crop_border (int): crop border a few pixels
-        niqe_model_path (str): NIQE model address
+        niqe_weights_path (str): NIQE model estimator weight address
         block_size_height (int): The height of the block the image is divided into. Default: 96
         block_size_width (int): The width of the block the image is divided into. Default: 96
 
@@ -96,23 +104,71 @@ class NIQE(nn.Module):
         niqe_metrics (torch.Tensor): NIQE metrics
 
     """
+    # crop border pixels
+    if crop_border > 0:
+        tensor = tensor[:, :, crop_border:-crop_border, crop_border:-crop_border]
 
-    def __init__(self, crop_border: int,
-                 niqe_model_path: str,
+    # Load the NIQE feature extraction model
+    niqe_model = loadmat(niqe_weights_path)
+
+    mu_pris_param = np.ravel(niqe_model["mu_prisparam"])
+    cov_pris_param = niqe_model["cov_prisparam"]
+    mu_pris_param = torch.from_numpy(mu_pris_param).to(tensor)
+    cov_pris_param = torch.from_numpy(cov_pris_param).to(tensor)
+
+    mu_pris_param = mu_pris_param.repeat(tensor.size(0), 1)
+    cov_pris_param = cov_pris_param.repeat(tensor.size(0), 1, 1)
+
+    # NIQE only tests on Y channel images and needs to convert the images
+    y_tensor = rgb_to_ycbcr_torch(tensor, only_use_y_channel=True)
+    y_tensor *= 255.0
+    y_tensor = y_tensor.round()
+
+    # Convert data type to torch.float64 bit
+    y_tensor = y_tensor.to(torch.float64)
+
+    niqe_metric = _fit_mscn_ipac_torch(y_tensor,
+                                       mu_pris_param,
+                                       cov_pris_param,
+                                       block_size_height,
+                                       block_size_width)
+
+    return niqe_metric
+
+
+class NIQE(nn.Module):
+    r"""PyTorch implements the NIQE (Natural Image Quality Evaluator) function,
+
+    Attributes:
+        crop_border (int): crop border a few pixels
+        niqe_weights_path (str): NIQE model address
+        block_size_height (int): The height of the block the image is divided into. Default: 96
+        block_size_width (int): The width of the block the image is divided into. Default: 96
+
+    Returns:
+        niqe_metrics (torch.Tensor): NIQE metrics
+    """
+
+    def __init__(self,
+                 crop_border: int = 0,
+                 niqe_weights_path: str = "",
                  block_size_height: int = 96,
                  block_size_width: int = 96) -> None:
         super().__init__()
+        if not Path(niqe_weights_path).exists:
+            raise FileNotFoundError(f"NIQE model file not found in {niqe_weights_path}")
+
         self.crop_border = crop_border
-        self.niqe_model_path = niqe_model_path
+        self.niqe_weights_path = niqe_weights_path
         self.block_size_height = block_size_height
         self.block_size_width = block_size_width
 
     def forward(self, raw_tensor: torch.Tensor) -> Tensor:
-        niqe_metrics = _niqe_torch(raw_tensor,
-                                   self.crop_border,
-                                   self.niqe_model_path,
-                                   self.block_size_height,
-                                   self.block_size_width)
+        niqe_metrics = niqe_torch(raw_tensor,
+                                  self.crop_border,
+                                  self.niqe_weights_path,
+                                  self.block_size_height,
+                                  self.block_size_width)
 
         return niqe_metrics
 
@@ -985,56 +1041,5 @@ def _fit_mscn_ipac_torch(tensor: torch.Tensor,
     diff = (mu_pris_param - mu_distparam).unsqueeze(1)
     niqe_metric = torch.bmm(torch.bmm(diff, invcov_param), diff.transpose(1, 2)).squeeze()
     niqe_metric = torch.sqrt(niqe_metric)
-
-    return niqe_metric
-
-
-def _niqe_torch(tensor: torch.Tensor,
-                crop_border: int,
-                niqe_model_path: str,
-                block_size_height: int = 96,
-                block_size_width: int = 96
-                ) -> Tensor:
-    """PyTorch implements the NIQE (Natural Image Quality Evaluator) function,
-
-    Attributes:
-        tensor (torch.Tensor): The image to evaluate the sharpness of the BRISQUE
-        crop_border (int): crop border a few pixels
-        niqe_model_path (str): NIQE model estimator weight address
-        block_size_height (int): The height of the block the image is divided into. Default: 96
-        block_size_width (int): The width of the block the image is divided into. Default: 96
-
-    Returns:
-        niqe_metrics (torch.Tensor): NIQE metrics
-
-    """
-    # crop border pixels
-    if crop_border > 0:
-        tensor = tensor[:, :, crop_border:-crop_border, crop_border:-crop_border]
-
-    # Load the NIQE feature extraction model
-    niqe_model = loadmat(niqe_model_path)
-
-    mu_pris_param = np.ravel(niqe_model["mu_prisparam"])
-    cov_pris_param = niqe_model["cov_prisparam"]
-    mu_pris_param = torch.from_numpy(mu_pris_param).to(tensor)
-    cov_pris_param = torch.from_numpy(cov_pris_param).to(tensor)
-
-    mu_pris_param = mu_pris_param.repeat(tensor.size(0), 1)
-    cov_pris_param = cov_pris_param.repeat(tensor.size(0), 1, 1)
-
-    # NIQE only tests on Y channel images and needs to convert the images
-    y_tensor = rgb_to_ycbcr_torch(tensor, only_use_y_channel=True)
-    y_tensor *= 255.0
-    y_tensor = y_tensor.round()
-
-    # Convert data type to torch.float64 bit
-    y_tensor = y_tensor.to(torch.float64)
-
-    niqe_metric = _fit_mscn_ipac_torch(y_tensor,
-                                       mu_pris_param,
-                                       cov_pris_param,
-                                       block_size_height,
-                                       block_size_width)
 
     return niqe_metric

@@ -11,6 +11,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import time
+from copy import deepcopy
 from pathlib import Path
 
 import torch.utils.data
@@ -19,22 +21,21 @@ from torch import nn, optim
 from torch.cuda import amp
 from torch.utils.tensorboard import SummaryWriter
 
-from real_esrgan.data.degradations import degradation_process
-from real_esrgan.data.transforms import random_crop_torch, random_rotate_torch, random_vertically_flip_torch, random_horizontally_flip_torch
 from real_esrgan.data.degenerated_image_dataset import DegeneratedImageDataset
+from real_esrgan.data.degradations import degradation_process
 from real_esrgan.data.paired_image_dataset import PairedImageDataset
 from real_esrgan.data.prefetcher import CUDAPrefetcher, CPUPrefetcher
+from real_esrgan.data.transforms import random_crop_torch, random_rotate_torch, random_vertically_flip_torch, random_horizontally_flip_torch
 from real_esrgan.layers.ema import ModelEMA
 from real_esrgan.models import RRDBNet
-from real_esrgan.utils.checkpoint import load_state_dict
+from real_esrgan.utils.checkpoint import load_state_dict, save_checkpoint
 from real_esrgan.utils.diffjepg import DiffJPEG
 from real_esrgan.utils.envs import select_device, set_seed_everything
 from real_esrgan.utils.events import LOGGER, AverageMeter, ProgressMeter
 from real_esrgan.utils.general import increment_name, find_last_checkpoint
 from real_esrgan.utils.imgproc import USMSharp
 from real_esrgan.utils.torch_utils import get_model_info
-
-import time
+from .evaler import Evaler
 
 
 def init_train_env(config_dict: DictConfig) -> [DictConfig, torch.device]:
@@ -207,8 +208,10 @@ class Trainer:
         self.scaler = amp.GradScaler()
 
         # eval for training
-        # self.evaler = Evaler(config_dict)
+        self.evaler = Evaler(config_dict, device)
         # metrics
+        self.best_psnr: float = 0.0
+        self.best_ssim: float = 0.0
         self.best_niqe: float = 100.0
 
     def get_dataloader(self):
@@ -410,32 +413,27 @@ class Trainer:
             # Update the learning rate after each training epoch
             self.g_lr_scheduler.step()
 
-            # niqe = validate(g_model,
-            #                 paired_test_prefetcher,
-            #                 epoch,
-            #                 writer,
-            #                 niqe_model,
-            #                 realesrnet_config.device,
-            #                 realesrnet_config.test_print_frequency,
-            #                 "Test")
-            #
-            # # Automatically save model weights
-            # is_best = niqe < best_niqe
-            # is_last = (epoch + 1) == realesrnet_config.epochs
-            # best_niqe = min(niqe, best_niqe)
-            # save_checkpoint({"epoch": epoch + 1,
-            #                  "best_niqe": best_niqe,
-            #                  "state_dict": g_model.state_dict(),
-            #                  "ema_state_dict": ema_g_model.state_dict(),
-            #                  "optimizer": optimizer.state_dict(),
-            #                  "scheduler": scheduler.state_dict()},
-            #                 f"g_epoch_{epoch + 1}.pth.tar",
-            #                 samples_dir,
-            #                 results_dir,
-            #                 "g_best.pth.tar",
-            #                 "g_last.pth.tar",
-            #                 is_best,
-            #                 is_last)
+            # Evaluate the model after each training epoch
+            psnr, ssim, _ = self.evaler.evaluate(self.val_dataloader, self.g_model)
+            # update attributes for ema model
+            self.ema.update_attr(self.g_model)
+
+            is_best = psnr > self.best_psnr or ssim > self.best_ssim
+            is_last = (epoch + 1) == self.epochs
+
+            # save ckpt
+            ckpt = {
+                "model": deepcopy(self.g_model).half(),
+                "ema": deepcopy(self.ema.ema).half(),
+                "updates": self.ema.updates,
+                "optimizer": self.g_optimizer.state_dict(),
+                "scheduler": self.g_lr_scheduler.state_dict(),
+                "epoch": epoch,
+            }
+            save_ckpt_dir = Path(self.save_dir) / "weights"
+            save_checkpoint(ckpt, is_best, save_ckpt_dir, model_name="g_checkpoint", best_model_name="best_g_checkpoint")
+
+            del ckpt
 
     def train_gan(self):
         pass

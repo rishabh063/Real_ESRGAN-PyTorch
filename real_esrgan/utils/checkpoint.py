@@ -88,7 +88,7 @@ def save_checkpoint(checkpoint: dict, is_best: bool, save_dir: str | Path, model
     torch.save(checkpoint, file_name)
 
     if is_best:
-        best_filename = os.path.join(save_dir, model_name + ".pkl")
+        best_filename = os.path.join(save_dir, best_model_name + ".pkl")
         shutil.copyfile(file_name, best_filename)
 
 

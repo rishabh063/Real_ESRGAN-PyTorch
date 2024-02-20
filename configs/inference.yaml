@@ -1,5 +1,5 @@
 DEVICE: "0"
-WEIGHTS_PATH: "realesrgan_x4-dfo2k.pkl"
+WEIGHTS_PATH: "realesrnet_x4-dfo2k.pkl"
 HALF: True
 INPUTS: "figure"
 OUTPUT: "output"
