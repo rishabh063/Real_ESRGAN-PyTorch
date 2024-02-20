@@ -172,7 +172,7 @@ def degradation_process(
 
 
 def random_mixed_kernels(kernel_type: list,
-                         kernel_prob: float,
+                         kernel_prob: list,
                          kernel_size: int,
                          sigma_x_range: list,
                          sigma_y_range: list,
@@ -184,7 +184,7 @@ def random_mixed_kernels(kernel_type: list,
 
     Args:
         kernel_type (list): a list name of gaussian kernel types
-        kernel_prob (float): corresponding kernel probability for each kernel type
+        kernel_prob (list): corresponding kernel probability for each kernel type
         kernel_size (int): Gaussian kernel size
         sigma_x_range (list): Sigma range along the horizontal axis
         sigma_y_range (list): Sigma range along the vertical axis

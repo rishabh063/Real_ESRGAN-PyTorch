@@ -117,7 +117,7 @@ def filter2D_torch(image: Tensor, kernel: Tensor) -> Tensor:
     return F_torch.conv2d(image, kernel, groups=batch_size * channels).view(batch_size, channels, height, width)
 
 
-def usm_sharp(image: np.np.ndarray, weight: float = 0.5, radius: int = 50, threshold: int = 10) -> np.np.ndarray:
+def usm_sharp(image: np.ndarray, weight: float = 0.5, radius: int = 50, threshold: int = 10) -> np.ndarray:
     r"""Unsharp mask sharpening
 
     Args:

@@ -19,6 +19,7 @@ from real_esrgan.layers.blocks import ResidualResidualDenseBlock
 
 __all__ = [
     "RRDBNet",
+    "rrdbnet_x4",
 ]
 
 
@@ -86,3 +87,9 @@ class RRDBNet(nn.Module):
         out = torch.clamp_(out, 0.0, 1.0)
 
         return out
+
+
+def rrdbnet_x4(**kwargs) -> RRDBNet:
+    r"""RRDBNet model for Real-ESRGAN.
+    """
+    return RRDBNet(**kwargs)
