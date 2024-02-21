@@ -115,14 +115,6 @@ class Trainer:
         self.dataset_val_gt_images_dir = self.dataset_config_dict.VAL_GT_IMAGES_DIR
         self.dataset_val_lr_images_dir = self.dataset_config_dict.VAL_LR_IMAGES_DIR
 
-        # model
-        self.model_g_type = self.model_config_dict.G.TYPE
-        self.model_g_in_channels = self.model_config_dict.G.IN_CHANNELS
-        self.model_g_out_channels = self.model_config_dict.G.OUT_CHANNELS
-        self.model_g_channels = self.model_config_dict.G.CHANNELS
-        self.model_g_growth_channels = self.model_config_dict.G.GROWTH_CHANNELS
-        self.model_g_num_rrdb = self.model_config_dict.G.NUM_RRDB
-
         # train
         self.resume_g = self.train_config_dict.get("RESUME_G", "")
         self.resume_d = self.train_config_dict.get("RESUME_D", "")

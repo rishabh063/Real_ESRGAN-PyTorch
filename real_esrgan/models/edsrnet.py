@@ -46,7 +46,7 @@ class EDSRNet(nn.Module):
         self.upscale_factor = upscale_factor
 
         # First layer
-        self.conv_1 = nn.Conv2d(in_channels, out_channels, 3, stride=1, padding=1)
+        self.conv_1 = nn.Conv2d(in_channels, channels, 3, stride=1, padding=1)
 
         # Residual blocks
         trunk = []
@@ -67,7 +67,7 @@ class EDSRNet(nn.Module):
         self.up_sampling = nn.Sequential(*up_sampling)
 
         # Final output layer
-        self.conv_3 = nn.Conv2d(64, 3, (3, 3), (1, 1), (1, 1))
+        self.conv_3 = nn.Conv2d(channels, out_channels, (3, 3), (1, 1), (1, 1))
 
         initialize_weights(self.modules())
 
@@ -78,7 +78,7 @@ class EDSRNet(nn.Module):
         out = self.trunk(out1)
         out = self.conv_2(out)
         out = torch.add(out, out1)
-        out = self.upsampling(out)
+        out = self.up_sampling(out)
         out = self.conv_3(out)
         out = out.div_(255.).add_(self.mean)
         return torch.clamp_(out, 0.0, 1.0)
