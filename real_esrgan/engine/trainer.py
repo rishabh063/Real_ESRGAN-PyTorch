@@ -27,7 +27,8 @@ from real_esrgan.data.paired_image_dataset import PairedImageDataset
 from real_esrgan.data.prefetcher import CUDAPrefetcher, CPUPrefetcher
 from real_esrgan.data.transforms import random_crop_torch, random_rotate_torch, random_vertically_flip_torch, random_horizontally_flip_torch
 from real_esrgan.layers.ema import ModelEMA
-from real_esrgan.models import rrdbnet_x4
+from real_esrgan.models.edsrnet import edsrnet_x4
+from real_esrgan.models.rrdbnet import rrdbnet_x4
 from real_esrgan.utils.checkpoint import load_state_dict, save_checkpoint
 from real_esrgan.utils.diffjepg import DiffJPEG
 from real_esrgan.utils.envs import select_device, set_seed_everything
@@ -252,12 +253,18 @@ class Trainer:
         return train_dataloader, val_dataloader
 
     def get_g_model(self):
-        if self.model_g_type == "rrdbnet_x4":
-            g_model = rrdbnet_x4(in_channels=self.model_g_in_channels,
-                                 out_channels=self.model_g_out_channels,
-                                 channels=self.model_g_channels,
-                                 growth_channels=self.model_g_growth_channels,
-                                 num_rrdb=self.model_g_num_rrdb)
+        model_g_type = self.model_config_dict.G.TYPE
+        if model_g_type == "rrdbnet_x4":
+            g_model = rrdbnet_x4(in_channels=self.model_config_dict.G.get("IN_CHANNELS", 3),
+                                 out_channels=self.model_config_dict.G.get("OUT_CHANNELS", 3),
+                                 channels=self.model_config_dict.G.get("CHANNELS", 64),
+                                 growth_channels=self.model_config_dict.G.get("GROWTH_CHANNELS", 32),
+                                 num_rrdb=self.model_config_dict.G.get("NUM_RRDB", 23))
+        elif model_g_type == "edsrnet_x4":
+            g_model = edsrnet_x4(in_channels=self.model_config_dict.G.get("IN_CHANNELS", 3),
+                                 out_channels=self.model_config_dict.G.get("OUT_CHANNELS", 3),
+                                 channels=self.model_config_dict.G.get("CHANNELS", 64),
+                                 num_rcb=self.model_config_dict.G.get("NUM_RCB", 16))
         else:
             raise NotImplementedError(f"Model type {self.model_g_type} is not implemented.")
         g_model = g_model.to(self.device)
