@@ -19,7 +19,7 @@ from real_esrgan.layers.blocks import ResidualResidualDenseBlock
 
 __all__ = [
     "RRDBNet",
-    "rrdbnet_x4",
+    "rrdbnet_x2", "rrdbnet_x3", "rrdbnet_x4", "rrdbnet_x8",
 ]
 
 
@@ -31,8 +31,12 @@ class RRDBNet(nn.Module):
             channels: int = 64,
             growth_channels: int = 32,
             num_rrdb: int = 23,
+            upscale_factor: int = 4,
     ) -> None:
         super(RRDBNet, self).__init__()
+        assert upscale_factor in (2, 3, 4, 8), "Upscale factor should be 2, 3, 4 or 8."
+        self.upscale_factor = upscale_factor
+
         # The first layer of convolutional layer
         self.conv_1 = nn.Conv2d(in_channels, channels, (3, 3), (1, 1), (1, 1))
 
@@ -46,15 +50,33 @@ class RRDBNet(nn.Module):
         self.conv_2 = nn.Conv2d(channels, channels, (3, 3), (1, 1), (1, 1))
 
         # Up-sampling convolutional layer
-        self.up_sampling_1 = nn.Sequential(
-            nn.Conv2d(channels, channels, (3, 3), (1, 1), (1, 1)),
-            nn.LeakyReLU(0.2, True),
-        )
-
-        self.up_sampling_2 = nn.Sequential(
-            nn.Conv2d(channels, channels, (3, 3), (1, 1), (1, 1)),
-            nn.LeakyReLU(0.2, True),
-        )
+        if self.upscale_factor == 2 or self.upscale_factor == 3:
+            self.up_sampling_1 = nn.Sequential(
+                nn.Conv2d(channels, channels, (3, 3), (1, 1), (1, 1)),
+                nn.LeakyReLU(0.2, True),
+            )
+        elif self.upscale_factor == 4:
+            self.up_sampling_1 = nn.Sequential(
+                nn.Conv2d(channels, channels, (3, 3), (1, 1), (1, 1)),
+                nn.LeakyReLU(0.2, True),
+            )
+            self.up_sampling_2 = nn.Sequential(
+                nn.Conv2d(channels, channels, (3, 3), (1, 1), (1, 1)),
+                nn.LeakyReLU(0.2, True),
+            )
+        elif self.upscale_factor == 8:
+            self.up_sampling_1 = nn.Sequential(
+                nn.Conv2d(channels, channels, (3, 3), (1, 1), (1, 1)),
+                nn.LeakyReLU(0.2, True),
+            )
+            self.up_sampling_2 = nn.Sequential(
+                nn.Conv2d(channels, channels, (3, 3), (1, 1), (1, 1)),
+                nn.LeakyReLU(0.2, True),
+            )
+            self.up_sampling_3 = nn.Sequential(
+                nn.Conv2d(channels, channels, (3, 3), (1, 1), (1, 1)),
+                nn.LeakyReLU(0.2, True),
+            )
 
         # Output layer
         self.conv_3 = nn.Sequential(
@@ -78,8 +100,17 @@ class RRDBNet(nn.Module):
         conv_2 = self.conv_2(out)
         out = torch.add(conv_1, conv_2)
 
-        out = self.up_sampling_1(F_torch.interpolate(out, scale_factor=2, mode="nearest"))
-        out = self.up_sampling_2(F_torch.interpolate(out, scale_factor=2, mode="nearest"))
+        if self.upscale_factor == 2:
+            out = self.up_sampling_1(F_torch.interpolate(out, scale_factor=2, mode="nearest"))
+        elif self.upscale_factor == 3:
+            out = self.up_sampling_1(F_torch.interpolate(out, scale_factor=3, mode="nearest"))
+        elif self.upscale_factor == 4:
+            out = self.up_sampling_1(F_torch.interpolate(out, scale_factor=2, mode="nearest"))
+            out = self.up_sampling_2(F_torch.interpolate(out, scale_factor=2, mode="nearest"))
+        elif self.upscale_factor == 8:
+            out = self.up_sampling_1(F_torch.interpolate(out, scale_factor=2, mode="nearest"))
+            out = self.up_sampling_2(F_torch.interpolate(out, scale_factor=2, mode="nearest"))
+            out = self.up_sampling_3(F_torch.interpolate(out, scale_factor=2, mode="nearest"))
 
         out = self.conv_3(out)
         out = self.conv_4(out)
@@ -89,7 +120,17 @@ class RRDBNet(nn.Module):
         return out
 
 
-def rrdbnet_x4(**kwargs) -> RRDBNet:
-    r"""RRDBNet model for Real-ESRGAN.
-    """
-    return RRDBNet(**kwargs)
+def rrdbnet_x2(upscale_factor=2, **kwargs) -> RRDBNet:
+    return RRDBNet(upscale_factor=upscale_factor, **kwargs)
+
+
+def rrdbnet_x3(upscale_factor=3, **kwargs) -> RRDBNet:
+    return RRDBNet(upscale_factor=upscale_factor, **kwargs)
+
+
+def rrdbnet_x4(upscale_factor=4, **kwargs) -> RRDBNet:
+    return RRDBNet(upscale_factor=upscale_factor, **kwargs)
+
+
+def rrdbnet_x8(upscale_factor=8, **kwargs) -> RRDBNet:
+    return RRDBNet(upscale_factor=upscale_factor, **kwargs)
