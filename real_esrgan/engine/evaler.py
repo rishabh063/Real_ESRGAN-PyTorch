@@ -142,3 +142,4 @@ class Evaler:
         psnr, ssim, niqe = self.eval_model(dataloader, model, self.device)
 
         LOGGER.info(f"PSNR: {psnr:.2f}, SSIM: {ssim:.4f}, NIQE: {niqe:.2f}")
+        return psnr, ssim, niqe
