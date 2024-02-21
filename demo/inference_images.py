@@ -35,6 +35,7 @@ def main() -> None:
     config_dict = OmegaConf.load(config_path)
 
     inferencer = SuperResolutionInferencer(config_dict)
+    inferencer.warmup()
     inferencer.inference()
 
 
