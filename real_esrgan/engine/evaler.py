@@ -36,7 +36,6 @@ class Evaler:
 
         self.weights_path = self.eval_config_dict.WEIGHTS_PATH
         self.niqe_weights_path = self.eval_config_dict.NIQE_WEIGHTS_PATH
-        self.half = self.eval_config_dict.HALF
         self.only_test_y_channel = self.eval_config_dict.ONLY_TEST_Y_CHANNEL
 
         # IQA model
@@ -69,7 +68,6 @@ class Evaler:
         model_info = get_model_info(model, device=self.device)
         LOGGER.info(f"Model Summary: {model_info}")
 
-        model.half() if self.half else model.float()
         model.eval()
         return model
 
@@ -101,16 +99,12 @@ class Evaler:
                 gt = batch_data["gt"].to(device=device, non_blocking=True)
                 lr = batch_data["lr"].to(device=device, non_blocking=True)
 
-                if self.half:
-                    lr = lr.half()
-                    gt = gt.half()
-
                 # inference
                 sr = model(lr)
 
                 # Calculate the image IQA
                 psnr = self.psnr_model(sr, gt)
-                ssim = self.ssim_model(sr.float(), gt.float())
+                ssim = self.ssim_model(sr, gt)
                 niqe = self.niqe_model(sr)
                 psnres.update(psnr.item(), lr.size(0))
                 ssimes.update(ssim.item(), lr.size(0))

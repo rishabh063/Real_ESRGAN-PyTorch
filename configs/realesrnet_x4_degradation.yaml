@@ -107,5 +107,4 @@ TRAIN:
 EVAL:
   WEIGHTS_PATH: "results/pretrained_models/realesrnet_x4-dfo2k.pkl"
   NIQE_WEIGHTS_PATH: "results/pretrained_models/niqe_model.mat"
-  HALF: True
   ONLY_TEST_Y_CHANNEL: True
