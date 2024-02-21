@@ -18,7 +18,7 @@ import math
 import torch
 from torch import nn
 
-from yolov6.utils.checkpoint import is_parallel
+from real_esrgan.utils.checkpoint import is_parallel
 
 __all__ = [
     "ModelEMA",

@@ -21,8 +21,34 @@ from torch import nn
 from .events import LOGGER
 
 __all__ = [
-    "load_checkpoint", "load_state_dict", "save_checkpoint", "strip_optimizer",
+    "de_parallel", "is_parallel", "load_checkpoint", "load_state_dict", "save_checkpoint", "strip_optimizer",
 ]
+
+
+def de_parallel(model: nn.Module) -> nn.Module:
+    """
+    De-parallelize a model. Return single-GPU model if model"s type is DP or DDP.
+
+    Args:
+        model (nn.Module): The model to de-parallelize.
+
+    Returns:
+        nn.Module: The de-parallelized model.
+    """
+    return model.module if is_parallel(model) else model
+
+
+def is_parallel(model: nn.Module) -> bool:
+    """
+    Check if a model is of type DataParallel or DistributedDataParallel.
+
+    Args:
+        model (nn.Module): The model to check.
+
+    Returns:
+        bool: True if the model is of type DataParallel or DistributedDataParallel, False otherwise.
+    """
+    return type(model) in (nn.parallel.DataParallel, nn.parallel.DistributedDataParallel)
 
 
 def load_state_dict(weights_path: str, model: nn.Module, map_location: torch.device) -> nn.Module:
