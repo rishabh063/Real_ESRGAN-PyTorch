@@ -16,6 +16,7 @@ from torch import Tensor, nn
 from torch.nn import functional as F_torch
 
 from real_esrgan.layers.blocks import ResidualResidualDenseBlock
+from real_esrgan.utils.ops import initialize_weights
 
 __all__ = [
     "RRDBNet",
@@ -87,12 +88,7 @@ class RRDBNet(nn.Module):
         # Output layer
         self.conv_4 = nn.Conv2d(channels, out_channels, (3, 3), (1, 1), (1, 1))
 
-        for module in self.modules():
-            if isinstance(module, nn.Conv2d):
-                nn.init.kaiming_normal_(module.weight)
-                module.weight.data *= 0.1
-                if module.bias is not None:
-                    nn.init.constant_(module.bias, 0)
+        initialize_weights(self.modules())
 
     def forward(self, x: Tensor) -> Tensor:
         conv_1 = self.conv_1(x)

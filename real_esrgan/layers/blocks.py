@@ -15,8 +15,33 @@ import torch
 from torch import Tensor, nn
 
 __all__ = [
-    "ResidualDenseBlock", "ResidualResidualDenseBlock",
+    "ResidualConvBlock", "ResidualDenseBlock", "ResidualResidualDenseBlock",
 ]
+
+
+class ResidualConvBlock(nn.Module):
+    r"""Residual convolutional block.
+    `Enhanced Deep Residual Networks for Single Image Super-Resolution` https://arxiv.org/abs/1707.02921 paper.
+    
+    Attributes:
+        rcb (nn.Sequential): The residual convolutional block.
+    """
+
+    def __init__(self, channels: int) -> None:
+        super(ResidualConvBlock, self).__init__()
+        self.rcb = nn.Sequential(
+            nn.Conv2d(channels, channels, 3, stride=1, padding=1),
+            nn.ReLU(True),
+            nn.Conv2d(channels, channels, 3, stride=1, padding=1),
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        identity = x
+
+        out = self.rcb(x)
+
+        out = torch.mul(out, 0.1)
+        return torch.add(out, identity)
 
 
 class ResidualDenseBlock(nn.Module):
@@ -30,11 +55,11 @@ class ResidualDenseBlock(nn.Module):
 
     def __init__(self, channels: int, growth_channels: int) -> None:
         super(ResidualDenseBlock, self).__init__()
-        self.conv_1 = nn.Conv2d(channels + growth_channels * 0, growth_channels, (3, 3), (1, 1), (1, 1))
-        self.conv_2 = nn.Conv2d(channels + growth_channels * 1, growth_channels, (3, 3), (1, 1), (1, 1))
-        self.conv_3 = nn.Conv2d(channels + growth_channels * 2, growth_channels, (3, 3), (1, 1), (1, 1))
-        self.conv_4 = nn.Conv2d(channels + growth_channels * 3, growth_channels, (3, 3), (1, 1), (1, 1))
-        self.conv_5 = nn.Conv2d(channels + growth_channels * 4, channels, (3, 3), (1, 1), (1, 1))
+        self.conv_1 = nn.Conv2d(channels + growth_channels * 0, growth_channels, 3, stride=1, padding=1)
+        self.conv_2 = nn.Conv2d(channels + growth_channels * 1, growth_channels, 3, stride=1, padding=1)
+        self.conv_3 = nn.Conv2d(channels + growth_channels * 2, growth_channels, 3, stride=1, padding=1)
+        self.conv_4 = nn.Conv2d(channels + growth_channels * 3, growth_channels, 3, stride=1, padding=1)
+        self.conv_5 = nn.Conv2d(channels + growth_channels * 4, channels, 3, stride=1, padding=1)
 
         self.leaky_relu = nn.LeakyReLU(0.2, True)
         self.identity = nn.Identity()

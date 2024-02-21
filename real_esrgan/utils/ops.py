@@ -11,12 +11,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from .color import *
-from .diffjepg import *
-from .envs import *
-from .events import *
-from .general import *
-from .imgproc import *
-from .matlab_functions import *
-from .ops import *
-from .torch_utils import *
+from typing import Any
+
+from torch import nn
+
+__all__ = [
+    "initialize_weights",
+]
+
+
+def initialize_weights(modules: Any):
+    r"""Initializes the weights of the model.
+
+     Args:
+         modules: The model to be initialized.
+     """
+    for module in modules():
+        if isinstance(module, nn.Conv2d):
+            nn.init.kaiming_normal_(module.weight)
+            module.weight.data *= 0.1
+            if module.bias is not None:
+                nn.init.constant_(module.bias, 0)
