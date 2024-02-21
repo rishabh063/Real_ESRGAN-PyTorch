@@ -26,7 +26,7 @@ def initialize_weights(modules: Any):
      Args:
          modules: The model to be initialized.
      """
-    for module in modules():
+    for module in modules:
         if isinstance(module, nn.Conv2d):
             nn.init.kaiming_normal_(module.weight)
             module.weight.data *= 0.1
