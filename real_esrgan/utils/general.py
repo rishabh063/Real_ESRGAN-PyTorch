@@ -65,7 +65,7 @@ def find_last_checkpoint(search_dir: Optional[str] = ".") -> str:
         str: The path to the most recent checkpoint file. If no checkpoint files are found, returns an empty string.
     """
     # Use glob to find all the checkpoint files in the search directory
-    checkpoint_list = glob.glob(f"{search_dir}/**/last*.pt", recursive=True)
+    checkpoint_list = glob.glob(f"{search_dir}/**/*last*.pkl", recursive=True)
 
     # If checkpoint files are found, return the most recent one
     # If no checkpoint files are found, return an empty string

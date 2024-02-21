@@ -431,7 +431,7 @@ class Trainer:
                 "epoch": epoch,
             }
             save_ckpt_dir = Path(self.save_dir) / "weights"
-            save_checkpoint(ckpt, is_best, save_ckpt_dir, model_name="g_checkpoint", best_model_name="best_g_checkpoint")
+            save_checkpoint(ckpt, is_best, save_ckpt_dir, model_name="g_last_checkpoint", best_model_name="g_best_checkpoint")
 
             del ckpt
 
