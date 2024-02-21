@@ -1,5 +1,5 @@
 DEVICE: "0" # "0" means GPU 0, "0,1" means GPU 0 and 1, etc.
-EXP_NAME: "realesrnet_x4-dfo2k" # Name of the experiment
+EXP_NAME: "realesrnet_x4-dfo2k_degradation" # Name of the experiment
 PHASE: "psnr" # psnr, gan
 UPSCALE_FACTOR: 4
 
