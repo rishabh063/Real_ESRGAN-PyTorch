@@ -27,7 +27,7 @@ from real_esrgan.data.paired_image_dataset import PairedImageDataset
 from real_esrgan.data.prefetcher import CUDAPrefetcher, CPUPrefetcher
 from real_esrgan.data.transforms import random_crop_torch, random_rotate_torch, random_vertically_flip_torch, random_horizontally_flip_torch
 from real_esrgan.layers.ema import ModelEMA
-from real_esrgan.models import RRDBNet
+from real_esrgan.models import rrdbnet_x4
 from real_esrgan.utils.checkpoint import load_state_dict, save_checkpoint
 from real_esrgan.utils.diffjepg import DiffJPEG
 from real_esrgan.utils.envs import select_device, set_seed_everything
@@ -253,11 +253,11 @@ class Trainer:
 
     def get_g_model(self):
         if self.model_g_type == "rrdbnet_x4":
-            g_model = RRDBNet(self.model_g_in_channels,
-                              self.model_g_out_channels,
-                              self.model_g_channels,
-                              self.model_g_growth_channels,
-                              self.model_g_num_rrdb)
+            g_model = rrdbnet_x4(in_channels=self.model_g_in_channels,
+                                 out_channels=self.model_g_out_channels,
+                                 channels=self.model_g_channels,
+                                 growth_channels=self.model_g_growth_channels,
+                                 num_rrdb=self.model_g_num_rrdb)
         else:
             raise NotImplementedError(f"Model type {self.model_g_type} is not implemented.")
         g_model = g_model.to(self.device)
