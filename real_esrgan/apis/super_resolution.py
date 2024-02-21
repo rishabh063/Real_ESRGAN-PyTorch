@@ -58,6 +58,10 @@ class SuperResolutionInferencer(ABC):
         self.output = Path(self.output).resolve()
         self.output.mkdir(parents=True, exist_ok=True)
 
+    def warmup(self):
+        tensor = torch.randn([1, 3, 64, 64]).to(self.device)
+        _ = self.model(tensor)
+
     def _pre_process(self, file_name: str) -> Tensor:
         image_path = Path(self.inputs) / file_name
         image_path = str(image_path)
