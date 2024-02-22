@@ -61,7 +61,7 @@ def init_train_env(config_dict: DictConfig) -> [DictConfig, torch.device]:
                            f" {Path(checkpoint_path).parent.parent}")
             LOGGER.warning(f"In this case, make sure to provide configuration, such as datasets, batch size.")
             config_dict.TRAIN.SAVE_DIR = str(Path(checkpoint_path).parent.parent)
-        return checkpoint_path
+        return config_dict
 
     # Define the name of the configuration file
     save_config_name = "config.yaml"
