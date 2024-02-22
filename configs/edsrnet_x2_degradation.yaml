@@ -1,5 +1,5 @@
 DEVICE: "0" # "0" means GPU 0, "0,1" means GPU 0 and 1, etc.
-EXP_NAME: "edsrnet_x2-div2k_degradation" # Name of the experiment
+EXP_NAME: "edsrnet_x2-dfo2k_degradation" # Name of the experiment
 PHASE: "psnr" # psnr, gan
 UPSCALE_FACTOR: 2
 
@@ -45,11 +45,11 @@ DEGRADATION_PROCESS_PARAMETERS_DICT:
 
 DATASET:
   MODE: "degradation" # degradation, paired
-  TRAIN_GT_IMAGES_DIR: "/mnt/data/larry/Datasets/OpenData/DIV2K/DIV2K_train_HR_sub_image_384x384"
+  TRAIN_GT_IMAGES_DIR: "data/DFO2K/sub_image_384x384"
   TRAIN_LR_IMAGES_DIR: ""
 
-  VAL_GT_IMAGES_DIR: "/mnt/data/larry/Datasets/OpenData/Set5/X2/GT"
-  VAL_LR_IMAGES_DIR: "/mnt/data/larry/Datasets/OpenData/Set5/X2/LR"
+  VAL_GT_IMAGES_DIR: "data/Set5/X2/GT"
+  VAL_LR_IMAGES_DIR: "data/Set5/X2/LR"
 
 MODEL:
   G:
