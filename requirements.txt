@@ -1,8 +1,7 @@
+omegaconf
 opencv-python
 numpy
 typing
 tqdm
 scipy
-natsort
 fvcore
-omegaconf
