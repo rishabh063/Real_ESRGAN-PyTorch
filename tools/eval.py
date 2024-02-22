@@ -37,7 +37,8 @@ def main() -> None:
     device = select_device(config_dict.DEVICE)
 
     evaler = Evaler(config_dict, device)
-    evaler.evaluate()
+    psnr, ssim, niqe = evaler.evaluate()
+    print(f"PSNR: {psnr:.2f}, SSIM: {ssim:.4f}, NIQE: {niqe:.2f}")
 
 
 if __name__ == "__main__":

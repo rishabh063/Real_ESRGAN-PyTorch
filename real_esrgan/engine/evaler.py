@@ -50,7 +50,7 @@ class Evaler:
         val_dataloader = torch.utils.data.DataLoader(val_datasets,
                                                      batch_size=1,
                                                      shuffle=False,
-                                                     num_workers=1,
+                                                     num_workers=4,
                                                      pin_memory=True,
                                                      drop_last=False,
                                                      persistent_workers=True)
@@ -65,7 +65,15 @@ class Evaler:
         model.eval()
         return model
 
-    def evaluate(self, dataloader: Any, model: nn.Module, device: torch.device) -> tuple[Any, Any, Any]:
+    def evaluate(self, dataloader: Any = None, model: nn.Module = None, device: torch.device = None) -> tuple[Any, Any, Any]:
+        if device is None:
+            device = self.device
+        if dataloader is None:
+            dataloader = self.get_dataloader()
+        if model is None:
+            model = self.load_model()
+            model = model.to(device=device)
+
         # The information printed by the progress bar
         batch_time = AverageMeter("Time", ":6.3f", Summary.NONE)
         psnres = AverageMeter("PSNR", ":4.2f", Summary.AVERAGE)
