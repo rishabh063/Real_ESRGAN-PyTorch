@@ -334,38 +334,48 @@ class Trainer:
 
     def get_g_lr_scheduler(self):
         lr_scheduler_type = self.train_config_dict.SOLVER.G.LR_SCHEDULER.TYPE
-        if lr_scheduler_type not in ["StepLR", "MultiStepLR"]:
-            raise NotImplementedError(f"G scheduler {lr_scheduler_type} is not implemented. Only support `StepLR` and `MultiStepLR`.")
+        if lr_scheduler_type not in ["StepLR", "MultiStepLR", "Constant"]:
+            raise NotImplementedError(f"G scheduler {lr_scheduler_type} is not implemented. Only support [`StepLR`, `MultiStepLR`, `Constant`].")
 
         if lr_scheduler_type == "StepLR":
             g_lr_scheduler = optim.lr_scheduler.StepLR(
                 self.g_optimizer,
                 step_size=self.train_config_dict.SOLVER.G.LR_SCHEDULER.STEP_SIZE,
                 gamma=self.train_config_dict.SOLVER.G.LR_SCHEDULER.GAMMA)
-        else:
+        elif lr_scheduler_type == "MultiStepLR":
             g_lr_scheduler = optim.lr_scheduler.MultiStepLR(
                 self.g_optimizer,
                 milestones=OmegaConf.to_container(self.train_config_dict.SOLVER.G.LR_SCHEDULER.MILESTONES),
                 gamma=self.train_config_dict.SOLVER.G.LR_SCHEDULER.GAMMA)
+        else:
+            g_lr_scheduler = optim.lr_scheduler.ConstantLR(
+                self.g_optimizer,
+                factor=self.train_config_dict.SOLVER.G.LR_SCHEDULER.FACTOR,
+                total_iters=self.train_config_dict.SOLVER.G.LR_SCHEDULER.TOTAL_ITERS)
 
         LOGGER.info(f"G lr_scheduler: `{g_lr_scheduler}`")
         return g_lr_scheduler
 
     def get_d_lr_scheduler(self):
         lr_scheduler_type = self.train_config_dict.SOLVER.D.LR_SCHEDULER.TYPE
-        if lr_scheduler_type not in ["StepLR", "MultiStepLR"]:
-            raise NotImplementedError(f"D scheduler {lr_scheduler_type} is not implemented. Only support `StepLR` and `MultiStepLR`.")
+        if lr_scheduler_type not in ["StepLR", "MultiStepLR", "Constant"]:
+            raise NotImplementedError(f"G scheduler {lr_scheduler_type} is not implemented. Only support [`StepLR`, `MultiStepLR`, `Constant`].")
 
         if lr_scheduler_type == "StepLR":
             d_lr_scheduler = optim.lr_scheduler.StepLR(
                 self.d_optimizer,
                 step_size=self.train_config_dict.SOLVER.D.LR_SCHEDULER.STEP_SIZE,
                 gamma=self.train_config_dict.SOLVER.D.LR_SCHEDULER.GAMMA)
-        else:
+        elif lr_scheduler_type == "MultiStepLR":
             d_lr_scheduler = optim.lr_scheduler.MultiStepLR(
                 self.d_optimizer,
                 milestones=OmegaConf.to_container(self.train_config_dict.SOLVER.D.LR_SCHEDULER.MILESTONES),
                 gamma=self.train_config_dict.SOLVER.D.LR_SCHEDULER.GAMMA)
+        else:
+            d_lr_scheduler = optim.lr_scheduler.ConstantLR(
+                self.d_optimizer,
+                factor=self.train_config_dict.SOLVER.D.LR_SCHEDULER.FACTOR,
+                total_iters=self.train_config_dict.SOLVER.D.LR_SCHEDULER.TOTAL_ITERS)
 
         LOGGER.info(f"D lr_scheduler: `{d_lr_scheduler}`")
         return d_lr_scheduler
