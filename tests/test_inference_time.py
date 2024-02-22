@@ -27,9 +27,11 @@ def main():
     cuda_tensor = torch.randn(1, 3, 64, 64).to(cuda_device)
     cpu_tensor = torch.randn(1, 3, 64, 64).to(cpu_device)
 
+    print(f"=============== CUDA ===============")
     benchmark_all_edsr_models(cuda_device, cuda_tensor)
     benchmark_all_rrdb_models(cuda_device, cuda_tensor)
 
+    print(f"=============== CPU ===============")
     benchmark_all_edsr_models(cpu_device, cpu_tensor)
     benchmark_all_rrdb_models(cpu_device, cpu_tensor)
 
@@ -79,12 +81,12 @@ def benchmark_model(tensor: Tensor, model: nn.Module, iterations: int = 50) -> (
             starter.record()
             _ = model(tensor)
             ender.record()
-            if tensor.device.type == "cuda":
+            if tensor.device.type != "cpu":
                 torch.cuda.synchronize()
             curr_time = starter.elapsed_time(ender)
             times[current_iter] = curr_time
 
-    if tensor.device.type == "cuda":
+    if tensor.device.type != "cpu":
         torch.cuda.empty_cache()
 
     mean_time = times.mean().item()
@@ -93,7 +95,6 @@ def benchmark_model(tensor: Tensor, model: nn.Module, iterations: int = 50) -> (
 
 def benchmark_all_edsr_models(device, tensor):
     all_edsr_models = build_all_edsr_model(tensor, device)
-    print(f"=============== {device.type.upper()} ===============")
     for i, model in zip([2, 3, 4, 8], all_edsr_models):
         inference_time, fps = benchmark_model(tensor, model)
         print(f"edsrnet_x{i}: {inference_time:.1f} ms, {fps:.1f} fps")
@@ -101,7 +102,6 @@ def benchmark_all_edsr_models(device, tensor):
 
 def benchmark_all_rrdb_models(device, tensor):
     all_rrdb_models = build_all_rrdb_model(tensor, device)
-    print(f"=============== {device.type.upper()} ===============")
     for i, model in zip([2, 3, 4, 8], all_rrdb_models):
         inference_time, fps = benchmark_model(tensor, model)
         print(f"rrdbnet_x{i}: {inference_time:.1f} ms, {fps:.1f} fps")
