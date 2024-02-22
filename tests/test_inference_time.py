@@ -84,6 +84,9 @@ def benchmark_model(tensor: Tensor, model: nn.Module, iterations: int = 50) -> (
             curr_time = starter.elapsed_time(ender)
             times[current_iter] = curr_time
 
+    if tensor.device.type == "cuda":
+        torch.cuda.empty_cache()
+
     mean_time = times.mean().item()
     return mean_time, 1000 / mean_time
 
