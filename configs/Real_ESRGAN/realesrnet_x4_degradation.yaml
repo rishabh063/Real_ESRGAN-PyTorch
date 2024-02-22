@@ -1,5 +1,5 @@
 DEVICE: "0" # "0" means GPU 0, "0,1" means GPU 0 and 1, etc.
-EXP_NAME: "realesrnet_x4-dfo2k_degradation" # Name of the experiment
+EXP_NAME: "realesrnet_x4-div2k_degradation" # Name of the experiment
 PHASE: "psnr" # psnr, gan
 UPSCALE_FACTOR: 4
 
@@ -64,11 +64,11 @@ TRAIN:
   RESUME_G: ""
 
   # train weights
-  G_WEIGHTS_PATH: ""
+  G_WEIGHTS_PATH: "results/pretrained_models/realesrnet_x4-dfo2k_degradation.pkl"
 
   # train datasets
   IMAGE_SIZE: 256
-  BATCH_SIZE: 16
+  BATCH_SIZE: 8
   NUM_WORKERS: 4
 
   # train solver
@@ -76,13 +76,13 @@ TRAIN:
     G:
       OPTIM: "Adam"
       LR: 0.0002
-      BETAS: ( 0.9, 0.99 )
+      BETAS: [ 0.9, 0.99 ]
       EPS: 0.0001 # Ensure mixed precision training does not appear Nan
       WEIGHT_DECAY: 0.0
 
       LR_SCHEDULER:
         TYPE: "StepLR"
-        STEP_SIZE: 17  # epochs / 5
+        STEP_SIZE: 7  # epochs / 5
         GAMMA: 0.5
 
   # loss config
@@ -92,7 +92,7 @@ TRAIN:
       WEIGHT: [ 1.0 ]
 
   # train hyper-parameters
-  EPOCHS: 85  # 85 * 11869 = 1,008,865 ~= 1,000,000 iters
+  EPOCHS: 35  # 85 * 11869 = 1,008,865 ~= 1,000,000 iters
 
   # train setup
   LOCAL_RANK: -1
@@ -105,6 +105,6 @@ TRAIN:
   VERBOSE: True
 
 EVAL:
-  WEIGHTS_PATH: "results/pretrained_models/realesrnet_x4-dfo2k_degradation.pkl"
+  WEIGHTS_PATH: "results/pretrained_models/realesrnet_x4-div2k_degradation.pkl"
   NIQE_WEIGHTS_PATH: "results/pretrained_models/niqe_model.mat"
   ONLY_TEST_Y_CHANNEL: True

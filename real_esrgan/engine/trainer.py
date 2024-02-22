@@ -312,7 +312,7 @@ class Trainer:
 
         g_optimizer = optim.Adam(self.g_model.parameters(),
                                  lr=self.train_config_dict.SOLVER.G.LR,
-                                 betas=self.train_config_dict.SOLVER.G.BETAS,
+                                 betas=OmegaConf.to_container(self.train_config_dict.SOLVER.G.BETAS),
                                  eps=self.train_config_dict.SOLVER.G.EPS,
                                  weight_decay=self.train_config_dict.SOLVER.G.WEIGHT_DECAY)
 
@@ -326,7 +326,7 @@ class Trainer:
 
         d_optimizer = optim.Adam(self.d_model.parameters(),
                                  lr=self.train_config_dict.SOLVER.D.LR,
-                                 betas=self.train_config_dict.SOLVER.D.BETAS,
+                                 betas=OmegaConf.to_container(self.train_config_dict.SOLVER.D.BETAS),
                                  eps=self.train_config_dict.SOLVER.D.EPS,
                                  weight_decay=self.train_config_dict.SOLVER.D.WEIGHT_DECAY)
         LOGGER.info(f"D optimizer: {d_optimizer}")
