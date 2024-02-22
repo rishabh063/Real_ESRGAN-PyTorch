@@ -199,13 +199,16 @@ class Trainer:
         self.tblogger = SummaryWriter(self.save_dir)
 
         # training variables
-        self.start_time: float
-        self.batch_time: AverageMeter
-        self.data_time: AverageMeter
-        self.pixel_losses: AverageMeter
-        self.content_losses: AverageMeter
-        self.adversarial_losses: AverageMeter
-        self.progress: ProgressMeter
+        self.start_time: float = 0.0
+        self.batch_time: AverageMeter = AverageMeter("Time", ":6.3f")
+        self.data_time: AverageMeter = AverageMeter("Data", ":6.3f")
+        self.pixel_losses: AverageMeter = AverageMeter("Pixel loss", ":.4e")
+        self.content_losses: AverageMeter = AverageMeter("Content loss", ":.4e")
+        self.adversarial_losses: AverageMeter = AverageMeter("Adv loss", ":.4e")
+        self.progress: ProgressMeter = ProgressMeter(
+            self.num_train_batch,
+            [self.batch_time, self.data_time, self.pixel_losses, self.content_losses, self.adversarial_losses],
+            prefix=f"Epoch: [{self.current_epoch}]")
 
         # eval for training
         self.evaler = Evaler(config_dict, device)
@@ -328,15 +331,17 @@ class Trainer:
             raise NotImplementedError(f"G scheduler {lr_scheduler_type} is not implemented. Only support `StepLR` and `MultiStepLR`.")
 
         if lr_scheduler_type == "StepLR":
-            g_lr_scheduler = optim.lr_scheduler.StepLR(self.g_optimizer,
-                                                       step_size=self.train_config_dict.SOLVER.G.LR_SCHEDULER.STEP_SIZE,
-                                                       gamma=self.train_config_dict.SOLVER.G.LR_SCHEDULER.GAMMA)
+            g_lr_scheduler = optim.lr_scheduler.StepLR(
+                self.g_optimizer,
+                step_size=self.train_config_dict.SOLVER.G.LR_SCHEDULER.STEP_SIZE,
+                gamma=self.train_config_dict.SOLVER.G.LR_SCHEDULER.GAMMA)
         else:
-            g_lr_scheduler = optim.lr_scheduler.MultiStepLR(self.g_optimizer,
-                                                            milestones=self.train_config_dict.SOLVER.G.LR_SCHEDULER.MILESTONES,
-                                                            gamma=self.train_config_dict.SOLVER.G.LR_SCHEDULER.GAMMA)
+            g_lr_scheduler = optim.lr_scheduler.MultiStepLR(
+                self.g_optimizer,
+                milestones=OmegaConf.to_container(self.train_config_dict.SOLVER.G.LR_SCHEDULER.MILESTONES),
+                gamma=self.train_config_dict.SOLVER.G.LR_SCHEDULER.GAMMA)
 
-        LOGGER.info(f"G lr_scheduler: `{lr_scheduler_type}`")
+        LOGGER.info(f"G lr_scheduler: `{g_lr_scheduler}`")
         return g_lr_scheduler
 
     def get_d_lr_scheduler(self):
@@ -345,15 +350,17 @@ class Trainer:
             raise NotImplementedError(f"D scheduler {lr_scheduler_type} is not implemented. Only support `StepLR` and `MultiStepLR`.")
 
         if lr_scheduler_type == "StepLR":
-            d_lr_scheduler = optim.lr_scheduler.StepLR(self.d_optimizer,
-                                                       step_size=self.train_config_dict.SOLVER.D.LR_SCHEDULER.STEP_SIZE,
-                                                       gamma=self.train_config_dict.SOLVER.D.LR_SCHEDULER.GAMMA)
+            d_lr_scheduler = optim.lr_scheduler.StepLR(
+                self.d_optimizer,
+                step_size=self.train_config_dict.SOLVER.D.LR_SCHEDULER.STEP_SIZE,
+                gamma=self.train_config_dict.SOLVER.D.LR_SCHEDULER.GAMMA)
         else:
-            d_lr_scheduler = optim.lr_scheduler.MultiStepLR(self.d_optimizer,
-                                                            milestones=self.train_config_dict.SOLVER.D.LR_SCHEDULER.MILESTONES,
-                                                            gamma=self.train_config_dict.SOLVER.D.LR_SCHEDULER.GAMMA)
+            d_lr_scheduler = optim.lr_scheduler.MultiStepLR(
+                self.d_optimizer,
+                milestones=OmegaConf.to_container(self.train_config_dict.SOLVER.D.LR_SCHEDULER.MILESTONES),
+                gamma=self.train_config_dict.SOLVER.D.LR_SCHEDULER.GAMMA)
 
-        LOGGER.info(f"D lr_scheduler: `{lr_scheduler_type}`")
+        LOGGER.info(f"D lr_scheduler: `{d_lr_scheduler}`")
         return d_lr_scheduler
 
     def resume_g_model(self):
@@ -551,6 +558,7 @@ class Trainer:
                 "scheduler": self.d_lr_scheduler.state_dict(),
                 "epoch": self.current_epoch,
             }
+            save_checkpoint(ckpt, is_best, save_ckpt_dir, model_name="d_last_checkpoint", best_model_name="d_best_checkpoint")
 
         del ckpt
 
