@@ -71,7 +71,7 @@ class Evaler:
         model.eval()
         return model
 
-    def eval_model(self, dataloader: Any, model: nn.Module, device: torch.device) -> tuple[Any, Any, Any]:
+    def evaluate(self, dataloader: Any = None, model: nn.Module = None, device: torch.device = torch.device("cpu")) -> tuple[Any, Any, Any]:
         # The information printed by the progress bar
         batch_time = AverageMeter("Time", ":6.3f")
         psnres = AverageMeter("PSNR", ":4.2f")
@@ -106,9 +106,10 @@ class Evaler:
                 psnr = self.psnr_model(sr, gt)
                 ssim = self.ssim_model(sr, gt)
                 niqe = self.niqe_model(sr)
-                psnres.update(psnr.item(), lr.size(0))
-                ssimes.update(ssim.item(), lr.size(0))
-                niqees.update(niqe.item(), lr.size(0))
+                batch_size = lr.size(0)
+                psnres.update(psnr.item(), batch_size)
+                ssimes.update(ssim.item(), batch_size)
+                niqees.update(niqe.item(), batch_size)
 
                 # Record the total time to verify a batch
                 batch_time.update(time.time() - end)
@@ -126,14 +127,7 @@ class Evaler:
             # Print the performance index of the model at the current epoch
             progress.display_summary()
 
-        return psnres.avg, ssimes.avg, niqees.avg
-
-    def evaluate(self, dataloader: Any = None, model: nn.Module = None):
-        if dataloader is None:
-            dataloader = self.get_dataloader()
-        if model is None:
-            model = self.load_model()
-        psnr, ssim, niqe = self.eval_model(dataloader, model, self.device)
-
+        psnr, ssim, niqe = psnres.avg, ssimes.avg, niqees.avg
         LOGGER.info(f"PSNR: {psnr:.2f}, SSIM: {ssim:.4f}, NIQE: {niqe:.2f}")
+
         return psnr, ssim, niqe

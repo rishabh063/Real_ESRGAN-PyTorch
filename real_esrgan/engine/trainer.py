@@ -128,7 +128,7 @@ class Trainer:
         # train solver
         self.solver_g_optim = self.train_config_dict.SOLVER.G.OPTIM
         self.solver_g_lr = self.train_config_dict.SOLVER.G.LR
-        self.solver_g_betas = list(self.train_config_dict.SOLVER.G.BETAS)
+        self.solver_g_betas = OmegaConf.to_container(self.train_config_dict.SOLVER.G.BETAS)
         self.solver_g_eps = self.train_config_dict.SOLVER.G.EPS
         self.solver_g_weight_decay = self.train_config_dict.SOLVER.G.WEIGHT_DECAY
         self.solver_g_lr_scheduler_type = self.train_config_dict.SOLVER.G.LR_SCHEDULER.TYPE
@@ -140,13 +140,13 @@ class Trainer:
         self.loss_gan = self.train_config_dict.LOSS.get("GAN", "")
         if self.loss_pixel:
             self.loss_pixel_type = self.loss_pixel.get("TYPE", "")
-            self.loss_pixel_weight = list(self.loss_pixel.get("WEIGHT", []))
+            self.loss_pixel_weight = OmegaConf.to_container(self.loss_pixel.get("WEIGHT", []))
         if self.loss_feature:
             self.loss_feature_type = self.loss_feature.get("TYPE", "")
-            self.loss_feature_weight = list(self.loss_feature.get("WEIGHT", []))
+            self.loss_feature_weight = OmegaConf.to_container(self.loss_feature.get("WEIGHT", []))
         if self.loss_gan:
             self.loss_gan_type = self.loss_gan.get("TYPE", "")
-            self.loss_gan_weight = list(self.loss_gan.get("WEIGHT", []))
+            self.loss_gan_weight = OmegaConf.to_container(self.loss_gan.get("WEIGHT", []))
         # train hyper-parameters
         self.epochs = self.train_config_dict.EPOCHS
         # train setup
@@ -263,7 +263,7 @@ class Trainer:
                                  channels=self.model_config_dict.G.get("CHANNELS", 64),
                                  num_rcb=self.model_config_dict.G.get("NUM_RCB", 16))
         else:
-            raise NotImplementedError(f"Model type {self.model_g_type} is not implemented.")
+            raise NotImplementedError(f"Model type {model_g_type} is not implemented.")
         g_model = g_model.to(self.device)
         if self.g_weights_path:
             LOGGER.info(f"Loading state_dict from {self.g_weights_path} for fine-tuning...")
