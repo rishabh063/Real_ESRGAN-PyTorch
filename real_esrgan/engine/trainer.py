@@ -311,7 +311,7 @@ class Trainer:
             raise NotImplementedError(f"G optimizer {optim_type} is not implemented. Only support `Adam`.")
 
         g_optimizer = optim.Adam(self.g_model.parameters(),
-                                 lr=self.train_config_dict.SOLVER.G.OPTIM.OPTIM.LR,
+                                 lr=self.train_config_dict.SOLVER.G.OPTIM.LR,
                                  betas=OmegaConf.to_container(self.train_config_dict.SOLVER.G.OPTIM.BETAS),
                                  eps=self.train_config_dict.SOLVER.G.OPTIM.EPS,
                                  weight_decay=self.train_config_dict.SOLVER.G.OPTIM.WEIGHT_DECAY)
