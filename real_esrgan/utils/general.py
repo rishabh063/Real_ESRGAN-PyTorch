@@ -11,17 +11,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import glob
 import logging
 import os
 from pathlib import Path
-from typing import Union, Optional
+from typing import Union
 
 from torch import Tensor
 from torchvision.datasets.folder import IMG_EXTENSIONS
 
 __all__ = [
-    "check_dir", "check_tensor_shape", "find_last_checkpoint", "get_all_filenames", "increment_name",
+    "check_dir", "check_tensor_shape", "get_all_filenames", "increment_name",
 ]
 
 logger = logging.getLogger(__name__)
@@ -53,23 +52,6 @@ def check_tensor_shape(raw_tensor: Tensor, dst_tensor: Tensor):
 
     # Check if the tensor scale is consistent
     assert raw_tensor.shape == dst_tensor.shape, f"Supplied images have different sizes {str(raw_tensor.shape)} and {str(dst_tensor.shape)}"
-
-
-def find_last_checkpoint(search_dir: Optional[str] = ".") -> str:
-    r"""Find the most recent saved checkpoint in search_dir.
-
-    Args:
-        search_dir (Optional[str], optional): The directory to search for the checkpoint files. Defaults to ".".
-
-    Returns:
-        str: The path to the most recent checkpoint file. If no checkpoint files are found, returns an empty string.
-    """
-    # Use glob to find all the checkpoint files in the search directory
-    checkpoint_list = glob.glob(f"{search_dir}/**/*last*.pkl", recursive=True)
-
-    # If checkpoint files are found, return the most recent one
-    # If no checkpoint files are found, return an empty string
-    return max(checkpoint_list, key=os.path.getctime) if checkpoint_list else ""
 
 
 def get_all_filenames(path: str | Path, image_extensions: tuple = None) -> list:

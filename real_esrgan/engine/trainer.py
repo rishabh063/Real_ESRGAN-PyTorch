@@ -33,7 +33,7 @@ from real_esrgan.utils.checkpoint import load_state_dict, save_checkpoint
 from real_esrgan.utils.diffjepg import DiffJPEG
 from real_esrgan.utils.envs import select_device, set_seed_everything
 from real_esrgan.utils.events import LOGGER, AverageMeter, ProgressMeter
-from real_esrgan.utils.general import increment_name, find_last_checkpoint
+from real_esrgan.utils.general import increment_name
 from real_esrgan.utils.imgproc import USMSharp
 from real_esrgan.utils.torch_utils import get_model_info
 from .evaler import Evaler
@@ -49,8 +49,7 @@ def init_train_env(config_dict: DictConfig) -> [DictConfig, torch.device]:
         device (torch.device): The device to be used for training.
     """
 
-    def _resume(config_dict: DictConfig, weights_path: str | Path):
-        checkpoint_path = weights_path if isinstance(weights_path, str) else find_last_checkpoint()
+    def _resume(config_dict: DictConfig, checkpoint_path: str):
         assert Path(checkpoint_path).is_file(), f"the checkpoint path is not exist: {checkpoint_path}"
         LOGGER.info(f"Resume training from the checkpoint file: `{checkpoint_path}`")
         resume_config_file_path = Path(checkpoint_path).parent.parent / save_config_name
@@ -72,10 +71,10 @@ def init_train_env(config_dict: DictConfig) -> [DictConfig, torch.device]:
     # Handle the resume training case
     if resume_g:
         checkpoint_path = _resume(config_dict, resume_g)
-        config_dict.TRAIN.RESUME = checkpoint_path  # set the args.resume to checkpoint path.
+        config_dict.TRAIN.RESUME_G = checkpoint_path
     elif resume_d:
         checkpoint_path = _resume(config_dict, resume_d)
-        config_dict.TRAIN.RESUME = checkpoint_path
+        config_dict.TRAIN.RESUME_D = checkpoint_path
     else:
         save_dir = config_dict.TRAIN.OUTPUT_DIR / Path(config_dict.EXP_NAME)
         config_dict.TRAIN.SAVE_DIR = str(increment_name(save_dir))
@@ -212,13 +211,10 @@ class Trainer:
             raise NotImplementedError(f"Dataset mode {self.dataset_mode} is not implemented. Only support `degradation` and `paired`.")
 
         if self.dataset_mode == "degradation":
-            train_datasets = DegeneratedImageDataset(self.dataset_train_gt_images_dir,
-                                                     self.degradation_model_parameters_dict)
+            train_datasets = DegeneratedImageDataset(self.dataset_train_gt_images_dir, self.degradation_model_parameters_dict)
         else:
-            train_datasets = PairedImageDataset(self.dataset_train_gt_images_dir,
-                                                self.dataset_train_lr_images_dir)
-        val_datasets = PairedImageDataset(self.dataset_val_gt_images_dir,
-                                          self.dataset_val_lr_images_dir)
+            train_datasets = PairedImageDataset(self.dataset_train_gt_images_dir, self.dataset_train_lr_images_dir)
+        val_datasets = PairedImageDataset(self.dataset_val_gt_images_dir, self.dataset_val_lr_images_dir)
         # generate dataset iterator
         train_dataloader = torch.utils.data.DataLoader(train_datasets,
                                                        batch_size=self.train_batch_size,
@@ -263,7 +259,7 @@ class Trainer:
                                  channels=self.model_config_dict.G.get("CHANNELS", 64),
                                  num_rcb=self.model_config_dict.G.get("NUM_RCB", 16))
         else:
-            raise NotImplementedError(f"Model type {model_g_type} is not implemented.")
+            raise NotImplementedError(f"Model type `{model_g_type}` is not implemented.")
         g_model = g_model.to(self.device)
         if self.g_weights_path:
             LOGGER.info(f"Loading state_dict from {self.g_weights_path} for fine-tuning...")
@@ -295,7 +291,7 @@ class Trainer:
         g_lr_scheduler = optim.lr_scheduler.StepLR(self.g_optimizer,
                                                    step_size=self.solver_g_lr_scheduler_step_size,
                                                    gamma=self.solver_g_lr_scheduler_gamma)
-        LOGGER.info(f"G LR scheduler: ``{self.solver_g_lr_scheduler_type}``")
+        LOGGER.info(f"G LR scheduler: `{self.solver_g_lr_scheduler_type}`")
         return g_lr_scheduler
 
     def resume_g_model(self):
@@ -313,10 +309,10 @@ class Trainer:
             raise NotImplementedError(f"Loss type {self.loss_pixel_type} is not implemented. Only support `l1` and `l2`.")
 
         if self.loss_pixel_type == "l1":
-            LOGGER.info(f"Pixel-wise loss: ``L1 loss``.")
+            LOGGER.info(f"Pixel-wise loss: `L1 loss`.")
             pixel_criterion = nn.L1Loss()
         else:
-            LOGGER.info(f"Pixel-wise loss: ``MSE loss``.")
+            LOGGER.info(f"Pixel-wise loss: `MSE loss`.")
             pixel_criterion = nn.MSELoss()
 
         return pixel_criterion.to(device=self.device)
@@ -418,7 +414,7 @@ class Trainer:
             self.g_lr_scheduler.step()
 
             # Evaluate the model after each training epoch
-            psnr, ssim, _ = self.evaler.evaluate(self.val_dataloader, self.g_model)
+            psnr, ssim, _ = self.evaler.evaluate(self.val_dataloader, self.g_model, self.device)
             # update attributes for ema model
             self.ema.update_attr(self.g_model)
 
