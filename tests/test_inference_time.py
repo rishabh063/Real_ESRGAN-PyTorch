@@ -15,6 +15,7 @@ import torch
 from torch import Tensor
 from torch import nn
 
+from real_esrgan.models.edsrnet import edsrnet_x2, edsrnet_x3, edsrnet_x4, edsrnet_x8
 from real_esrgan.models.rrdbnet import rrdbnet_x2, rrdbnet_x3, rrdbnet_x4, rrdbnet_x8
 
 starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
@@ -26,11 +27,33 @@ def main():
     cuda_tensor = torch.randn(1, 3, 64, 64).to(cuda_device)
     cpu_tensor = torch.randn(1, 3, 64, 64).to(cpu_device)
 
-    benchmark_all_models(cuda_device, cuda_tensor)
-    benchmark_all_models(cpu_device, cpu_tensor)
+    benchmark_all_edsr_models(cuda_device, cuda_tensor)
+    benchmark_all_rrdb_models(cuda_device, cuda_tensor)
+
+    benchmark_all_edsr_models(cpu_device, cpu_tensor)
+    benchmark_all_rrdb_models(cpu_device, cpu_tensor)
 
 
-def build_model(tensor: Tensor, device: torch.device):
+def build_all_edsr_model(tensor: Tensor, device: torch.device):
+    x2_model = edsrnet_x2()
+    x3_model = edsrnet_x3()
+    x4_model = edsrnet_x4()
+    x8_model = edsrnet_x8()
+
+    x2_model = x2_model.to(device)
+    x3_model = x3_model.to(device)
+    x4_model = x4_model.to(device)
+    x8_model = x8_model.to(device)
+
+    _ = x2_model(tensor)
+    _ = x3_model(tensor)
+    _ = x4_model(tensor)
+    _ = x8_model(tensor)
+
+    return x2_model, x3_model, x4_model, x8_model
+
+
+def build_all_rrdb_model(tensor: Tensor, device: torch.device):
     x2_model = rrdbnet_x2()
     x3_model = rrdbnet_x3()
     x4_model = rrdbnet_x4()
@@ -65,10 +88,18 @@ def benchmark_model(tensor: Tensor, model: nn.Module, iterations: int = 50) -> (
     return mean_time, 1000 / mean_time
 
 
-def benchmark_all_models(device, tensor):
+def benchmark_all_edsr_models(device, tensor):
+    all_edsr_models = build_all_edsr_model(tensor, device)
     print(f"=============== {device.type.upper()} ===============")
-    models = build_model(tensor, device)
-    for i, model in zip([2, 3, 4, 8], models):
+    for i, model in zip([2, 3, 4, 8], all_edsr_models):
+        inference_time, fps = benchmark_model(tensor, model)
+        print(f"edsrnet_x{i}: {inference_time:.1f} ms, {fps:.1f} fps")
+
+
+def benchmark_all_rrdb_models(device, tensor):
+    all_rrdb_models = build_all_rrdb_model(tensor, device)
+    print(f"=============== {device.type.upper()} ===============")
+    for i, model in zip([2, 3, 4, 8], all_rrdb_models):
         inference_time, fps = benchmark_model(tensor, model)
         print(f"rrdbnet_x{i}: {inference_time:.1f} ms, {fps:.1f} fps")
 
