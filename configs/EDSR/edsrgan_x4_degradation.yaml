@@ -1,6 +1,6 @@
 DEVICE: "0" # "0" means GPU 0, "0,1" means GPU 0 and 1, etc.
-EXP_NAME: "edsrnet_x4-dfo2k_degradation" # Name of the experiment
-PHASE: "psnr" # psnr, gan
+EXP_NAME: "edsrgan_x4-dfo2k_degradation" # Name of the experiment
+PHASE: "gan" # psnr, gan
 UPSCALE_FACTOR: 4
 
 DEGRADATION_MODEL_PARAMETERS_DICT:
@@ -58,12 +58,20 @@ MODEL:
     OUT_CHANNELS: 3
     CHANNELS: 64
     NUM_RCB: 16
+  D:
+    TYPE: "discriminator_for_unet"
+    IN_CHANNELS: 3
+    OUT_CHANNELS: 1
+    CHANNELS: 64
+    UPSAMPLE_METHOD: "bilinear"
 
 TRAIN:
   RESUME_G: ""
+  RESUME_D: ""
 
   # train weights
-  G_WEIGHTS_PATH: ""
+  G_WEIGHTS_PATH: "results/train/edsrnet_x4-dfo2k_degradation/weights/g_best_checkpoint.pkl"
+  D_WEIGHTS_PATH: ""
 
   # train datasets
   IMAGE_SIZE: 192
@@ -76,13 +84,25 @@ TRAIN:
       OPTIM:
         TYPE: "Adam"
         LR: 0.0001
-        BETAS: [ 0.9, 0.999 ]
+        BETAS: [ 0.9, 0.99 ]
         EPS: 0.0001 # Ensure mixed precision training does not appear Nan
         WEIGHT_DECAY: 0.0
 
       LR_SCHEDULER:
-        TYPE: "StepLR"
-        STEP_SIZE: 57  # epochs / 2
+        TYPE: "MultiStepLR"
+        milestones: [ 4, 8, 16, 26 ]  # 0.125, 0.250, 0.5, 0.75
+        GAMMA: 0.5
+    D:
+      OPTIM:
+        TYPE: "Adam"
+        LR: 0.0001
+        BETAS: [ 0.9, 0.99 ]
+        EPS: 0.0001 # Ensure mixed precision training does not appear Nan
+        WEIGHT_DECAY: 0.0
+
+      LR_SCHEDULER:
+        TYPE: "MultiStepLR"
+        milestones: [ 4, 8, 16, 26 ]  # 0.125, 0.250, 0.5, 0.75
         GAMMA: 0.5
 
   # loss config
@@ -90,9 +110,15 @@ TRAIN:
     PIXEL:
       TYPE: "l1"
       WEIGHT: [ 1.0 ]
+    FEATURE:
+      TYPE: "feature_loss"
+      WEIGHT: [ 0.1, 0.1, 1.0, 1.0, 1.0 ]
+    ADV:
+      TYPE: "vanilla_gan"
+      WEIGHT: [ 0.1 ]
 
   # train hyper-parameters
-  EPOCHS: 85  # 85 * 11869 = 1,008,865 ~= 1,000,000 iters
+  EPOCHS: 35  # 35 * 11869 = 415,415 ~= 400,000 iters
 
   # train setup
   LOCAL_RANK: -1
@@ -105,6 +131,6 @@ TRAIN:
   VERBOSE: True
 
 EVAL:
-  WEIGHTS_PATH: "results/pretrained_models/edsrnet_x4-dfo2k_degradation.pkl"
+  WEIGHTS_PATH: "results/pretrained_models/edsrgan_x4-dfo2k_degradation.pkl"
   NIQE_WEIGHTS_PATH: "results/pretrained_models/niqe_model.mat"
   ONLY_TEST_Y_CHANNEL: True

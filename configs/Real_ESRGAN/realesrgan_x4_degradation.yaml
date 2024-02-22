@@ -71,7 +71,7 @@ TRAIN:
   RESUME_D: ""
 
   # train weights
-  G_WEIGHTS_PATH: ""
+  G_WEIGHTS_PATH: "results/train/realesrnet_x4-dfo2k_degradation/weights/g_best_checkpoint.pkl"
   D_WEIGHTS_PATH: ""
 
   # train datasets
