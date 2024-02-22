@@ -422,10 +422,8 @@ class Trainer:
             # update attributes for ema model
             self.ema.update_attr(self.g_model)
 
-            is_best = psnr > self.best_psnr or ssim > self.best_ssim
-            is_last = (epoch + 1) == self.epochs
-
             # save ckpt
+            is_best = psnr > self.best_psnr or ssim > self.best_ssim
             ckpt = {
                 "model": deepcopy(self.g_model).half(),
                 "ema": deepcopy(self.ema.ema).half(),
