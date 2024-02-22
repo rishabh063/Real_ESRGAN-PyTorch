@@ -14,6 +14,7 @@
 import time
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 import torch.utils.data
 from omegaconf import DictConfig, OmegaConf
@@ -28,6 +29,7 @@ from real_esrgan.data.transforms import random_crop_torch, random_rotate_torch, 
 from real_esrgan.layers.ema import ModelEMA
 from real_esrgan.models.discriminator_for_unet import discriminator_for_unet
 from real_esrgan.models.edsrnet import edsrnet_x2, edsrnet_x4
+from real_esrgan.models.losses import FeatureLoss
 from real_esrgan.models.rrdbnet import rrdbnet_x4
 from real_esrgan.utils.checkpoint import load_state_dict, save_checkpoint, strip_optimizer
 from real_esrgan.utils.diffjepg import DiffJPEG
@@ -126,18 +128,18 @@ class Trainer:
         self.train_num_workers = self.train_config_dict.NUM_WORKERS
 
         # train loss
-        self.loss_pixel = self.train_config_dict.LOSS.get("PIXEL", "")
-        self.loss_feature = self.train_config_dict.LOSS.get("FEATURE", "")
-        self.loss_gan = self.train_config_dict.LOSS.get("GAN", "")
-        if self.loss_pixel:
-            self.loss_pixel_type = self.loss_pixel.get("TYPE", "")
-            self.loss_pixel_weight = OmegaConf.to_container(self.loss_pixel.get("WEIGHT", []))
-        if self.loss_feature:
-            self.loss_feature_type = self.loss_feature.get("TYPE", "")
-            self.loss_feature_weight = OmegaConf.to_container(self.loss_feature.get("WEIGHT", []))
-        if self.loss_gan:
-            self.loss_gan_type = self.loss_gan.get("TYPE", "")
-            self.loss_gan_weight = OmegaConf.to_container(self.loss_gan.get("WEIGHT", []))
+        self.pixel_loss = self.train_config_dict.LOSS.get("PIXEL", "")
+        self.feature_loss = self.train_config_dict.LOSS.get("FEATURE", "")
+        self.adv_loss = self.train_config_dict.LOSS.get("GAN", "")
+        if self.pixel_loss:
+            self.pixel_loss_type = self.pixel_loss.get("TYPE", "")
+            self.pixel_loss_weight = OmegaConf.to_container(self.pixel_loss.get("WEIGHT", []))
+        if self.feature_loss:
+            self.feature_loss_type = self.feature_loss.get("TYPE", "")
+            self.feature_loss_weight = OmegaConf.to_container(self.feature_loss.get("WEIGHT", []))
+        if self.adv_loss:
+            self.adv_loss_type = self.adv_loss.get("TYPE", "")
+            self.adv_loss_weight = OmegaConf.to_container(self.adv_loss.get("WEIGHT", []))
         # train hyper-parameters
         self.epochs = self.train_config_dict.EPOCHS
         # train setup
@@ -181,7 +183,7 @@ class Trainer:
                 LOGGER.warning(f"Loading state_dict from {self.resume_g} failed, train from scratch...")
 
         # losses
-        self.pixel_criterion = self.define_psnr_loss()
+        self.pixel_criterion = self.define_loss(self.pixel_loss_type)
 
         # For the GAN phase
         if self.phase == "gan":
@@ -195,6 +197,9 @@ class Trainer:
                 else:
                     LOGGER.warning(f"Loading state_dict from {self.resume_d} failed, train from scratch...")
 
+            self.feature_criterion = self.define_loss(self.feature_loss_type)
+            self.adv_criterion = self.define_loss(self.adv_loss_type)
+
         # tensorboard
         self.tblogger = SummaryWriter(self.save_dir)
 
@@ -203,11 +208,13 @@ class Trainer:
         self.batch_time: AverageMeter = AverageMeter("Time", ":6.3f")
         self.data_time: AverageMeter = AverageMeter("Data", ":6.3f")
         self.pixel_losses: AverageMeter = AverageMeter("Pixel loss", ":.4e")
-        self.content_losses: AverageMeter = AverageMeter("Content loss", ":.4e")
-        self.adversarial_losses: AverageMeter = AverageMeter("Adv loss", ":.4e")
+        self.feature_losses: AverageMeter = AverageMeter("Content loss", ":.4e")
+        self.adv_losses: AverageMeter = AverageMeter("Adv loss", ":.4e")
+        self.d_gt_probes = AverageMeter("D(GT)", ":6.3f")
+        self.d_sr_probes = AverageMeter("D(SR)", ":6.3f")
         self.progress: ProgressMeter = ProgressMeter(
             self.num_train_batch,
-            [self.batch_time, self.data_time, self.pixel_losses, self.content_losses, self.adversarial_losses],
+            [self.batch_time, self.data_time, self.pixel_losses, self.feature_losses, self.adv_losses, self.d_gt_probes, self.d_sr_probes],
             prefix=f"Epoch: [{self.current_epoch}]")
 
         # eval for training
@@ -381,18 +388,22 @@ class Trainer:
         self.d_lr_scheduler.load_state_dict(self.d_checkpoint["scheduler"])
         LOGGER.info(f"Resumed d model from epoch {self.start_epoch}")
 
-    def define_psnr_loss(self) -> nn.L1Loss:
-        if self.loss_pixel_type not in ["l1", "l2"]:
-            raise NotImplementedError(f"Loss type {self.loss_pixel_type} is not implemented. Only support `l1` and `l2`.")
+    def define_loss(self, loss_type: str) -> Any:
+        if loss_type not in ["l1", "l2", "feature_loss", "vanilla_gan"]:
+            raise NotImplementedError(f"Loss type {loss_type} is not implemented. Only support `l1` and `l2`.")
 
-        if self.loss_pixel_type == "l1":
-            LOGGER.info(f"Pixel-wise loss: `L1 loss`.")
-            pixel_criterion = nn.L1Loss()
+        if loss_type == "l1":
+            criterion = nn.L1Loss()
+        elif loss_type == "l2":
+            criterion = nn.MSELoss()
+        elif loss_type == "feature_loss":
+            criterion = FeatureLoss()
         else:
-            LOGGER.info(f"Pixel-wise loss: `MSE loss`.")
-            pixel_criterion = nn.MSELoss()
+            criterion = nn.BCEWithLogitsLoss()
 
-        return pixel_criterion.to(device=self.device)
+        criterion = criterion.to(device=self.device)
+        LOGGER.info(f"Loss function: `{criterion}`")
+        return criterion
 
     def degradation_transforms(self, gt: Tensor, gaussian_kernel1: Tensor, gaussian_kernel2: Tensor, sinc_kernel: Tensor) -> [Tensor, Tensor, Tensor]:
         # Get the degraded low-resolution image
@@ -449,7 +460,7 @@ class Trainer:
             gaussian_kernel1 = gaussian_kernel1.to(device=self.device, non_blocking=True)
             gaussian_kernel2 = gaussian_kernel2.to(device=self.device, non_blocking=True)
             sinc_kernel = sic_kernel.to(device=self.device, non_blocking=True)
-            loss_weight = torch.Tensor(self.loss_pixel_weight).to(device=self.device)
+            loss_pixel_weight = torch.Tensor(self.pixel_loss_weight).to(device=self.device)
 
             # Initialize the generator gradient
             self.g_model.zero_grad(set_to_none=True)
@@ -458,10 +469,10 @@ class Trainer:
             gt_usm, gt, lr = self.degradation_transforms(gt, gaussian_kernel1, gaussian_kernel2, sinc_kernel)
 
             # Mixed precision training
-            with amp.autocast():
+            with amp.autocast(enabled=self.device.type != "cpu"):
                 sr = self.g_model(lr)
                 loss = self.pixel_criterion(sr, gt_usm)
-                loss = torch.sum(torch.mul(loss_weight, loss))
+                loss = torch.sum(torch.mul(loss_pixel_weight, loss))
 
             # Backpropagation
             self.scaler.scale(loss).backward()
@@ -487,7 +498,115 @@ class Trainer:
                 self.progress.display(i + 1)
 
     def train_gan(self):
-        pass
+        end = time.time()
+        for i, (gt, gaussian_kernel1, gaussian_kernel2, sic_kernel) in enumerate(self.train_dataloader):
+            # measure data loading time
+            self.data_time.update(time.time() - end)
+
+            gt = gt.to(device=self.device, non_blocking=True)
+            gaussian_kernel1 = gaussian_kernel1.to(device=self.device, non_blocking=True)
+            gaussian_kernel2 = gaussian_kernel2.to(device=self.device, non_blocking=True)
+            sinc_kernel = sic_kernel.to(device=self.device, non_blocking=True)
+            pixel_loss_weight = torch.Tensor(self.pixel_loss_weight).to(device=self.device)
+            feature_loss_weight = torch.Tensor(self.feature_loss_weight).to(device=self.device)
+            adv_loss_weight = torch.Tensor(self.adv_loss_weight).to(device=self.device)
+
+            # Initialize the generator gradient
+            self.g_model.zero_grad(set_to_none=True)
+
+            # degradation transforms
+            gt_usm, gt, lr = self.degradation_transforms(gt, gaussian_kernel1, gaussian_kernel2, sinc_kernel)
+
+            # Set the real sample label to 1, and the false sample label to 0
+            batch_size, _, height, width = gt.shape
+            real_label = torch.full([batch_size, 1, height, width], 1.0, dtype=torch.float, device=self.device)
+            fake_label = torch.full([batch_size, 1, height, width], 0.0, dtype=torch.float, device=self.device)
+
+            # Start training the generator model
+            # During generator training, turn off discriminator backpropagation
+            for d_parameters in self.d_model.parameters():
+                d_parameters.requires_grad = False
+
+            # Initialize generator model gradients
+            self.g_model.zero_grad(set_to_none=True)
+
+            # Calculate the perceptual loss of the generator, mainly including pixel loss, feature loss and adversarial loss
+            with amp.autocast(enabled=self.device.type != "cpu"):
+                # Use the generator model to generate fake samples
+                sr = self.g_model(lr)
+                pixel_loss = self.pixel_criterion(sr, gt_usm)
+                feature_loss = self.feature_criterion(sr, gt_usm)
+                adv_loss = self.adv_criterion(self.d_model(sr), real_label)
+                pixel_loss = torch.sum(torch.mul(pixel_loss_weight, pixel_loss))
+                feature_loss = torch.sum(torch.mul(feature_loss_weight, feature_loss))
+                adv_loss = torch.sum(torch.mul(adv_loss_weight, adv_loss))
+                # Calculate the generator total loss value
+                g_loss = pixel_loss + feature_loss + adv_loss
+            # Call the gradient scaling function in the mixed precision API to
+            # bp the gradient information of the fake samples
+            self.scaler.scale(g_loss).backward()
+            # Encourage the generator to generate higher quality fake samples, making it easier to fool the discriminator
+            self.scaler.step(self.g_optimizer)
+            self.scaler.update()
+            # Finish training the generator model
+
+            # Start training the discriminator model
+            # During discriminator model training, enable discriminator model backpropagation
+            for d_parameters in self.d_model.parameters():
+                d_parameters.requires_grad = True
+
+            # Initialize the discriminator model gradients
+            self.d_model.zero_grad(set_to_none=True)
+
+            # Calculate the classification score of the discriminator model for real samples
+            with amp.autocast():
+                gt_output = self.d_model(gt)
+                d_loss_gt = self.adv_criterion(gt_output, real_label)
+            # Call the gradient scaling function in the mixed precision API to
+            # bp the gradient information of the fake samples
+            self.scaler.scale(d_loss_gt).backward()
+
+            # Calculate the classification score of the discriminator model for fake samples
+            with amp.autocast():
+                sr_output = self.d_model(sr.detach().clone())
+                d_loss_sr = self.adv_criterion(sr_output, fake_label)
+                # Calculate the total discriminator loss value
+                d_loss = d_loss_sr + d_loss_gt
+            # Call the gradient scaling function in the mixed precision API to
+            # bp the gradient information of the fake samples
+            self.scaler.scale(d_loss_sr).backward()
+            # Improve the discriminator model's ability to classify real and fake samples
+            self.scaler.step(self.d_optimizer)
+            self.scaler.update()
+            # Finish training the discriminator model
+
+            # Calculate the score of the discriminator on real samples and fake samples,
+            # the score of real samples is close to 1, and the score of fake samples is close to 0
+            d_gt_prob = torch.sigmoid_(torch.mean(gt_output.detach()))
+            d_sr_prob = torch.sigmoid_(torch.mean(sr_output.detach()))
+
+            # Statistical accuracy and loss value for terminal data output
+            self.pixel_losses.update(pixel_loss.item(), lr.size(0))
+            self.feature_losses.update(feature_loss.item(), lr.size(0))
+            self.adv_losses.update(adv_loss.item(), lr.size(0))
+            self.d_gt_probes.update(d_gt_prob.item(), lr.size(0))
+            self.d_sr_probes.update(d_sr_prob.item(), lr.size(0))
+
+            # Calculate the time it takes to fully train a batch of data
+            self.batch_time.update(time.time() - end)
+            end = time.time()
+
+            # Write the data during training to the training log file
+            if i % 100 == 0 or i == self.num_train_batch - 1:
+                iters = i + self.current_epoch * self.train_batch_size + 1
+                self.tblogger.add_scalar("Train/D_Loss", d_loss.item(), iters)
+                self.tblogger.add_scalar("Train/G_Loss", g_loss.item(), iters)
+                self.tblogger.add_scalar("Train/Pixel_Loss", pixel_loss.item(), iters)
+                self.tblogger.add_scalar("Train/Content_Loss", feature_loss.item(), iters)
+                self.tblogger.add_scalar("Train/Adversarial_Loss", adv_loss.item(), iters)
+                self.tblogger.add_scalar("Train/D(GT)_Probability", d_gt_prob.item(), iters)
+                self.tblogger.add_scalar("Train/D(SR)_Probability", d_sr_prob.item(), iters)
+                self.progress.display(i + 1)
 
     def before_train_loop(self):
         LOGGER.info("Training start...")
@@ -510,10 +629,13 @@ class Trainer:
         if self.phase == "gan":
             self.d_model.train()
             self.d_optimizer.zero_grad()
-            self.content_losses = AverageMeter("Content loss", ":.4e")
-            self.adversarial_losses = AverageMeter("Adv loss", ":.4e")
+            self.feature_losses = AverageMeter("Content loss", ":.4e")
+            self.adv_losses = AverageMeter("Adv loss", ":.4e")
+            self.d_gt_probes = AverageMeter("D(GT)", ":6.3f")
+            self.d_sr_probes = AverageMeter("D(SR)", ":6.3f")
             self.progress = ProgressMeter(self.num_train_batch,
-                                          [self.batch_time, self.data_time, self.pixel_losses, self.content_losses, self.adversarial_losses],
+                                          [self.batch_time, self.data_time, self.pixel_losses, self.feature_losses, self.adv_losses,
+                                           self.d_gt_probes, self.d_sr_probes],
                                           prefix=f"Epoch: [{self.current_epoch}]")
 
     def train_one_epoch(self):

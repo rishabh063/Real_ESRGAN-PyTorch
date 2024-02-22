@@ -35,12 +35,18 @@ class FeatureLoss(nn.Module):
 
     def __init__(
             self,
-            feature_model_extractor_nodes: list,
-            feature_model_normalize_mean: list,
-            feature_model_normalize_std: list,
+            feature_model_extractor_nodes=None,
+            feature_model_normalize_mean: list = None,
+            feature_model_normalize_std: list = None,
     ) -> None:
         super(FeatureLoss, self).__init__()
         # Get the name of the specified feature extraction node
+        if feature_model_extractor_nodes is None:
+            feature_model_extractor_nodes = ["features.2", "features.7", "features.16", "features.25", "features.34"]
+        if feature_model_normalize_mean is None:
+            feature_model_normalize_mean = [0.485, 0.456, 0.406]
+        if feature_model_normalize_std is None:
+            feature_model_normalize_std = [0.229, 0.224, 0.225]
         self.feature_model_extractor_nodes = feature_model_extractor_nodes
         # Load the VGG19 model trained on the ImageNet dataset.
         model = models.vgg19(weights=models.VGG19_Weights.IMAGENET1K_V1)
