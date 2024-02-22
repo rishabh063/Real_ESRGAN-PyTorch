@@ -306,29 +306,29 @@ class Trainer:
         return d_model
 
     def get_g_optimizer(self):
-        optim_type = self.train_config_dict.SOLVER.G.OPTIM
+        optim_type = self.train_config_dict.SOLVER.G.OPTIM.TYPE
         if optim_type not in ["Adam"]:
             raise NotImplementedError(f"G optimizer {optim_type} is not implemented. Only support `Adam`.")
 
         g_optimizer = optim.Adam(self.g_model.parameters(),
-                                 lr=self.train_config_dict.SOLVER.G.LR,
-                                 betas=OmegaConf.to_container(self.train_config_dict.SOLVER.G.BETAS),
-                                 eps=self.train_config_dict.SOLVER.G.EPS,
-                                 weight_decay=self.train_config_dict.SOLVER.G.WEIGHT_DECAY)
+                                 lr=self.train_config_dict.SOLVER.G.OPTIM.OPTIM.LR,
+                                 betas=OmegaConf.to_container(self.train_config_dict.SOLVER.G.OPTIM.BETAS),
+                                 eps=self.train_config_dict.SOLVER.G.OPTIM.EPS,
+                                 weight_decay=self.train_config_dict.SOLVER.G.OPTIM.WEIGHT_DECAY)
 
         LOGGER.info(f"G optimizer: {g_optimizer}")
         return g_optimizer
 
     def get_d_optimizer(self):
-        optim_type = self.train_config_dict.SOLVER.D.OPTIM
+        optim_type = self.train_config_dict.SOLVER.D.OPTIM.TYPE
         if optim_type not in ["Adam"]:
             raise NotImplementedError(f"D optimizer {optim_type} is not implemented. Only support `Adam`.")
 
         d_optimizer = optim.Adam(self.d_model.parameters(),
-                                 lr=self.train_config_dict.SOLVER.D.LR,
-                                 betas=OmegaConf.to_container(self.train_config_dict.SOLVER.D.BETAS),
-                                 eps=self.train_config_dict.SOLVER.D.EPS,
-                                 weight_decay=self.train_config_dict.SOLVER.D.WEIGHT_DECAY)
+                                 lr=self.train_config_dict.SOLVER.D.OPTIM.LR,
+                                 betas=OmegaConf.to_container(self.train_config_dict.SOLVER.D.OPTIM.BETAS),
+                                 eps=self.train_config_dict.SOLVER.D.OPTIM.EPS,
+                                 weight_decay=self.train_config_dict.SOLVER.D.OPTIM.WEIGHT_DECAY)
         LOGGER.info(f"D optimizer: {d_optimizer}")
         return d_optimizer
 

@@ -11,6 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+from .checkpoint import *
 from .color import *
 from .diffjepg import *
 from .envs import *
