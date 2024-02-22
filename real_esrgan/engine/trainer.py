@@ -17,19 +17,19 @@ from pathlib import Path
 
 import torch.utils.data
 from omegaconf import DictConfig, OmegaConf
-from torch import nn, optim
+from torch import Tensor, nn, optim
 from torch.cuda import amp
 from torch.utils.tensorboard import SummaryWriter
 
 from real_esrgan.data.degenerated_image_dataset import DegeneratedImageDataset
 from real_esrgan.data.degradations import degradation_process
 from real_esrgan.data.paired_image_dataset import PairedImageDataset
-from real_esrgan.data.prefetcher import CUDAPrefetcher, CPUPrefetcher
 from real_esrgan.data.transforms import random_crop_torch, random_rotate_torch, random_vertically_flip_torch, random_horizontally_flip_torch
 from real_esrgan.layers.ema import ModelEMA
+from real_esrgan.models.discriminator_for_unet import discriminator_for_unet
 from real_esrgan.models.edsrnet import edsrnet_x2, edsrnet_x4
 from real_esrgan.models.rrdbnet import rrdbnet_x4
-from real_esrgan.utils.checkpoint import load_state_dict, save_checkpoint
+from real_esrgan.utils.checkpoint import load_state_dict, save_checkpoint, strip_optimizer
 from real_esrgan.utils.diffjepg import DiffJPEG
 from real_esrgan.utils.envs import select_device, set_seed_everything
 from real_esrgan.utils.events import LOGGER, AverageMeter, ProgressMeter
@@ -124,15 +124,7 @@ class Trainer:
         self.train_image_size = self.train_config_dict.IMAGE_SIZE
         self.train_batch_size = self.train_config_dict.BATCH_SIZE
         self.train_num_workers = self.train_config_dict.NUM_WORKERS
-        # train solver
-        self.solver_g_optim = self.train_config_dict.SOLVER.G.OPTIM
-        self.solver_g_lr = self.train_config_dict.SOLVER.G.LR
-        self.solver_g_betas = OmegaConf.to_container(self.train_config_dict.SOLVER.G.BETAS)
-        self.solver_g_eps = self.train_config_dict.SOLVER.G.EPS
-        self.solver_g_weight_decay = self.train_config_dict.SOLVER.G.WEIGHT_DECAY
-        self.solver_g_lr_scheduler_type = self.train_config_dict.SOLVER.G.LR_SCHEDULER.TYPE
-        self.solver_g_lr_scheduler_step_size = self.train_config_dict.SOLVER.G.LR_SCHEDULER.STEP_SIZE
-        self.solver_g_lr_scheduler_gamma = self.train_config_dict.SOLVER.G.LR_SCHEDULER.GAMMA
+
         # train loss
         self.loss_pixel = self.train_config_dict.LOSS.get("PIXEL", "")
         self.loss_feature = self.train_config_dict.LOSS.get("FEATURE", "")
@@ -172,15 +164,14 @@ class Trainer:
             self.jpeg_operation = jpeg_operation.to(device=self.device)
             self.usm_sharpener = usm_sharpener.to(device=self.device)
 
-        # model
+        # For the PSNR phase
         self.g_model = self.get_g_model()
         self.ema = ModelEMA(self.g_model)
-
-        # optimizer and scheduler
         self.g_optimizer = self.get_g_optimizer()
         self.g_lr_scheduler = self.get_g_lr_scheduler()
 
         self.start_epoch = 0
+        self.current_epoch = 0
         # resume model for training
         if self.resume_g:
             self.g_checkpoint = torch.load(self.resume_g, map_location=self.device)
@@ -190,21 +181,53 @@ class Trainer:
                 LOGGER.warning(f"Loading state_dict from {self.resume_g} failed, train from scratch...")
 
         # losses
-        if self.phase == "psnr":
-            self.pixel_criterion = self.define_psnr_loss()
+        self.pixel_criterion = self.define_psnr_loss()
+
+        # For the GAN phase
+        if self.phase == "gan":
+            self.d_model = self.get_d_model()
+            self.d_optimizer = self.get_d_optimizer()
+            self.d_lr_scheduler = self.get_d_lr_scheduler()
+            if self.resume_d:
+                self.d_checkpoint = torch.load(self.resume_d, map_location=self.device)
+                if self.d_checkpoint:
+                    self.resume_d_model()
+                else:
+                    LOGGER.warning(f"Loading state_dict from {self.resume_d} failed, train from scratch...")
 
         # tensorboard
         self.tblogger = SummaryWriter(self.save_dir)
 
-        # Initialize the mixed precision method
-        self.scaler = amp.GradScaler()
+        # training variables
+        self.start_time: float
+        self.batch_time: AverageMeter
+        self.data_time: AverageMeter
+        self.pixel_losses: AverageMeter
+        self.content_losses: AverageMeter
+        self.adversarial_losses: AverageMeter
+        self.progress: ProgressMeter
 
         # eval for training
         self.evaler = Evaler(config_dict, device)
         # metrics
+        self.psnr: float = 0.0
+        self.ssim: float = 0.0
+        self.niqe: float = 0.0
         self.best_psnr: float = 0.0
         self.best_ssim: float = 0.0
         self.best_niqe: float = 100.0
+
+        # Initialize the mixed precision method
+        self.scaler = amp.GradScaler(enabled=self.device.type != "cpu")
+
+        if self.verbose:
+            g_model_info = get_model_info(self.g_model, self.train_config_dict.IMAGE_SIZE, self.device)
+            LOGGER.info(f"G model: {self.g_model}")
+            LOGGER.info(f"G model summary: {g_model_info}")
+            if self.phase == "gan":
+                d_model_info = get_model_info(self.d_model, self.train_config_dict.IMAGE_SIZE, self.device)
+                LOGGER.info(f"D model: {self.d_model}")
+                LOGGER.info(f"D model summary: {d_model_info}")
 
     def get_dataloader(self):
         if self.dataset_mode not in ["degradation", "paired"]:
@@ -230,14 +253,6 @@ class Trainer:
                                                      pin_memory=True,
                                                      drop_last=False,
                                                      persistent_workers=True)
-
-        # Replace the data set iterator with CUDA to speed up
-        if self.device.type == "cuda":
-            train_dataloader = CUDAPrefetcher(train_dataloader, self.device)
-            val_dataloader = CUDAPrefetcher(val_dataloader, self.device)
-        else:
-            train_dataloader = CPUPrefetcher(train_dataloader)
-            val_dataloader = CPUPrefetcher(val_dataloader)
         return train_dataloader, val_dataloader
 
     def get_g_model(self):
@@ -265,34 +280,81 @@ class Trainer:
             LOGGER.info(f"Loading state_dict from {self.g_weights_path} for fine-tuning...")
             g_model = load_state_dict(self.g_weights_path, g_model, map_location=self.device)
 
-        if self.verbose:
-            LOGGER.info(f"G model: {g_model}")
-            model_info = get_model_info(g_model, self.train_config_dict.IMAGE_SIZE, self.device)
-            LOGGER.info(f"G model summary: {model_info}")
         return g_model
 
+    def get_d_model(self):
+        model_d_type = self.model_config_dict.D.TYPE
+        if model_d_type == "discriminator_for_unet":
+            d_model = discriminator_for_unet(in_channels=self.model_config_dict.D.get("IN_CHANNELS", 3),
+                                             out_channels=self.model_config_dict.D.get("OUT_CHANNELS", 1),
+                                             channels=self.model_config_dict.D.get("CHANNELS", 64),
+                                             upsample_method=self.model_config_dict.D.get("UPSAMPLE_METHOD", "bilinear"))
+
+        else:
+            raise NotImplementedError(f"Model type `{model_d_type}` is not implemented.")
+
+        return d_model
+
     def get_g_optimizer(self):
-        if self.solver_g_optim not in ["Adam"]:
-            raise NotImplementedError(f"Optimizer {self.solver_g_optim} is not implemented. Only support `Adam`.")
+        optim_type = self.train_config_dict.SOLVER.G.OPTIM
+        if optim_type not in ["Adam"]:
+            raise NotImplementedError(f"G optimizer {optim_type} is not implemented. Only support `Adam`.")
 
         g_optimizer = optim.Adam(self.g_model.parameters(),
-                                 lr=self.solver_g_lr,
-                                 betas=self.solver_g_betas,
-                                 eps=self.solver_g_eps,
-                                 weight_decay=self.solver_g_weight_decay)
-        LOGGER.info(f"G optimizer: {g_optimizer}")
+                                 lr=self.train_config_dict.SOLVER.G.LR,
+                                 betas=self.train_config_dict.SOLVER.G.BETAS,
+                                 eps=self.train_config_dict.SOLVER.G.EPS,
+                                 weight_decay=self.train_config_dict.SOLVER.G.WEIGHT_DECAY)
 
+        LOGGER.info(f"G optimizer: {g_optimizer}")
         return g_optimizer
 
-    def get_g_lr_scheduler(self):
-        if self.solver_g_lr_scheduler_type not in ["StepLR"]:
-            raise NotImplementedError(f"Scheduler {self.solver_g_lr_scheduler_type} is not implemented. Only support `StepLR`.")
+    def get_d_optimizer(self):
+        optim_type = self.train_config_dict.SOLVER.D.OPTIM
+        if optim_type not in ["Adam"]:
+            raise NotImplementedError(f"D optimizer {optim_type} is not implemented. Only support `Adam`.")
 
-        g_lr_scheduler = optim.lr_scheduler.StepLR(self.g_optimizer,
-                                                   step_size=self.solver_g_lr_scheduler_step_size,
-                                                   gamma=self.solver_g_lr_scheduler_gamma)
-        LOGGER.info(f"G LR scheduler: `{self.solver_g_lr_scheduler_type}`")
+        d_optimizer = optim.Adam(self.d_model.parameters(),
+                                 lr=self.train_config_dict.SOLVER.D.LR,
+                                 betas=self.train_config_dict.SOLVER.D.BETAS,
+                                 eps=self.train_config_dict.SOLVER.D.EPS,
+                                 weight_decay=self.train_config_dict.SOLVER.D.WEIGHT_DECAY)
+        LOGGER.info(f"D optimizer: {d_optimizer}")
+        return d_optimizer
+
+    def get_g_lr_scheduler(self):
+        lr_scheduler_type = self.train_config_dict.SOLVER.G.LR_SCHEDULER.TYPE
+        if lr_scheduler_type not in ["StepLR", "MultiStepLR"]:
+            raise NotImplementedError(f"G scheduler {lr_scheduler_type} is not implemented. Only support `StepLR` and `MultiStepLR`.")
+
+        if lr_scheduler_type == "StepLR":
+            g_lr_scheduler = optim.lr_scheduler.StepLR(self.g_optimizer,
+                                                       step_size=self.train_config_dict.SOLVER.G.LR_SCHEDULER.STEP_SIZE,
+                                                       gamma=self.train_config_dict.SOLVER.G.LR_SCHEDULER.GAMMA)
+        else:
+            g_lr_scheduler = optim.lr_scheduler.MultiStepLR(self.g_optimizer,
+                                                            milestones=self.train_config_dict.SOLVER.G.LR_SCHEDULER.MILESTONES,
+                                                            gamma=self.train_config_dict.SOLVER.G.LR_SCHEDULER.GAMMA)
+
+        LOGGER.info(f"G lr_scheduler: `{lr_scheduler_type}`")
         return g_lr_scheduler
+
+    def get_d_lr_scheduler(self):
+        lr_scheduler_type = self.train_config_dict.SOLVER.D.LR_SCHEDULER.TYPE
+        if lr_scheduler_type not in ["StepLR", "MultiStepLR"]:
+            raise NotImplementedError(f"D scheduler {lr_scheduler_type} is not implemented. Only support `StepLR` and `MultiStepLR`.")
+
+        if lr_scheduler_type == "StepLR":
+            d_lr_scheduler = optim.lr_scheduler.StepLR(self.d_optimizer,
+                                                       step_size=self.train_config_dict.SOLVER.D.LR_SCHEDULER.STEP_SIZE,
+                                                       gamma=self.train_config_dict.SOLVER.D.LR_SCHEDULER.GAMMA)
+        else:
+            d_lr_scheduler = optim.lr_scheduler.MultiStepLR(self.d_optimizer,
+                                                            milestones=self.train_config_dict.SOLVER.D.LR_SCHEDULER.MILESTONES,
+                                                            gamma=self.train_config_dict.SOLVER.D.LR_SCHEDULER.GAMMA)
+
+        LOGGER.info(f"D lr_scheduler: `{lr_scheduler_type}`")
+        return d_lr_scheduler
 
     def resume_g_model(self):
         resume_state_dict = self.g_checkpoint["model"].float().state_dict()
@@ -302,7 +364,15 @@ class Trainer:
         self.g_lr_scheduler.load_state_dict(self.g_checkpoint["scheduler"])
         self.ema.ema.load_state_dict(self.g_checkpoint["ema"].float().state_dict())
         self.ema.updates = self.g_checkpoint["updates"]
-        LOGGER.info(f"Resumed G model from epoch {self.start_epoch}")
+        LOGGER.info(f"Resumed g model from epoch {self.start_epoch}")
+
+    def resume_d_model(self):
+        resume_state_dict = self.d_checkpoint["model"].float().state_dict()
+        self.d_model.load_state_dict(resume_state_dict, strict=True)
+        self.start_epoch = self.d_checkpoint["epoch"] + 1
+        self.d_optimizer.load_state_dict(self.d_checkpoint["optimizer"])
+        self.d_lr_scheduler.load_state_dict(self.d_checkpoint["scheduler"])
+        LOGGER.info(f"Resumed d model from epoch {self.start_epoch}")
 
     def define_psnr_loss(self) -> nn.L1Loss:
         if self.loss_pixel_type not in ["l1", "l2"]:
@@ -317,121 +387,173 @@ class Trainer:
 
         return pixel_criterion.to(device=self.device)
 
+    def degradation_transforms(self, gt: Tensor, gaussian_kernel1: Tensor, gaussian_kernel2: Tensor, sinc_kernel: Tensor) -> [Tensor, Tensor, Tensor]:
+        # Get the degraded low-resolution image
+        gt_usm, gt, lr = degradation_process(gt,
+                                             gaussian_kernel1,
+                                             gaussian_kernel2,
+                                             sinc_kernel,
+                                             self.upscale_factor,
+                                             self.degradation_process_parameters_dict,
+                                             self.jpeg_operation,
+                                             self.usm_sharpener)
+
+        # image data augmentation
+        (gt_usm, gt), lr = random_crop_torch([gt_usm, gt], lr, self.train_image_size, self.upscale_factor)
+        (gt_usm, gt), lr = random_rotate_torch([gt_usm, gt], lr, self.upscale_factor, [0, 90, 180, 270])
+        (gt_usm, gt), lr = random_vertically_flip_torch([gt_usm, gt], lr)
+        (gt_usm, gt), lr = random_horizontally_flip_torch([gt_usm, gt], lr)
+
+        return gt_usm, gt, lr
+
     def train(self):
+        try:
+            self.before_train_loop()
+            for self.current_epoch in range(self.start_epoch, self.epochs):
+                self.before_epoch()
+                self.train_one_epoch()
+                self.after_epoch()
+
+            LOGGER.info(f"Training completed in {(time.time() - self.start_time) / 3600:.3f} hours.")
+            g_best_checkpoint_path = Path(self.save_dir) / "weights" / "g_best_checkpoint.pkl"
+            g_last_checkpoint_path = Path(self.save_dir) / "weights" / "g_last_checkpoint.pkl"
+            d_best_checkpoint_path = Path(self.save_dir) / "weights" / "d_best_checkpoint.pkl"
+            d_last_checkpoint_path = Path(self.save_dir) / "weights" / "d_last_checkpoint.pkl"
+            strip_optimizer(g_best_checkpoint_path, self.current_epoch)
+            strip_optimizer(g_last_checkpoint_path, self.current_epoch)
+            if self.phase == "gan":
+                strip_optimizer(d_best_checkpoint_path, self.current_epoch)
+                strip_optimizer(d_last_checkpoint_path, self.current_epoch)
+
+        except Exception as _:
+            LOGGER.error("Training failed.")
+            raise
+        finally:
+            if self.device != "cpu":
+                torch.cuda.empty_cache()
+
+    def train_psnr(self):
+        end = time.time()
+        for i, (gt, gaussian_kernel1, gaussian_kernel2, sic_kernel) in enumerate(self.train_dataloader):
+            # measure data loading time
+            self.data_time.update(time.time() - end)
+
+            gt = gt.to(device=self.device, non_blocking=True)
+            gaussian_kernel1 = gaussian_kernel1.to(device=self.device, non_blocking=True)
+            gaussian_kernel2 = gaussian_kernel2.to(device=self.device, non_blocking=True)
+            sinc_kernel = sic_kernel.to(device=self.device, non_blocking=True)
+            loss_weight = torch.Tensor(self.loss_pixel_weight).to(device=self.device)
+
+            # Initialize the generator gradient
+            self.g_model.zero_grad(set_to_none=True)
+
+            # degradation transforms
+            gt_usm, gt, lr = self.degradation_transforms(gt, gaussian_kernel1, gaussian_kernel2, sinc_kernel)
+
+            # Mixed precision training
+            with amp.autocast():
+                sr = self.g_model(lr)
+                loss = self.pixel_criterion(sr, gt_usm)
+                loss = torch.sum(torch.mul(loss_weight, loss))
+
+            # Backpropagation
+            self.scaler.scale(loss).backward()
+            # update generator weights
+            self.scaler.step(self.g_optimizer)
+            self.scaler.update()
+
+            # update exponential average model weights
+            self.ema.update(self.g_model)
+
+            # Statistical loss value for terminal data output
+            batch_size = lr.size(0)
+            self.pixel_losses.update(loss.item(), batch_size)
+
+            # measure elapsed time
+            self.batch_time.update(time.time() - end)
+            end = time.time()
+
+            # Record training log information
+            if i % 100 == 0 or i == self.num_train_batch - 1:
+                # Writer Loss to file
+                self.tblogger.add_scalar("Train/Loss", loss.item(), i + self.current_epoch * self.train_batch_size + 1)
+                self.progress.display(i + 1)
+
+    def train_gan(self):
+        pass
+
+    def before_train_loop(self):
+        LOGGER.info("Training start...")
+        self.start_time = time.time()
+
+    def before_epoch(self):
+        self.g_model.train()
+        # if self.rank != -1:
+        #     self.train_dataloader.sampler.set_epoch(self.current_epoch)
+        self.g_optimizer.zero_grad()
+
+        # The information printed by the progress bar
+        self.batch_time = AverageMeter("Time", ":6.3f")
+        self.data_time = AverageMeter("Data", ":6.3f")
+        self.pixel_losses = AverageMeter("Pixel loss", ":.4e")
+        self.progress = ProgressMeter(self.num_train_batch,
+                                      [self.batch_time, self.data_time, self.pixel_losses],
+                                      prefix=f"Epoch: [{self.current_epoch}]")
+
+        if self.phase == "gan":
+            self.d_model.train()
+            self.d_optimizer.zero_grad()
+            self.content_losses = AverageMeter("Content loss", ":.4e")
+            self.adversarial_losses = AverageMeter("Adv loss", ":.4e")
+            self.progress = ProgressMeter(self.num_train_batch,
+                                          [self.batch_time, self.data_time, self.pixel_losses, self.content_losses, self.adversarial_losses],
+                                          prefix=f"Epoch: [{self.current_epoch}]")
+
+    def train_one_epoch(self):
         if self.phase == "psnr":
             self.train_psnr()
         else:
             self.train_gan()
 
-        if self.device != "cpu":
-            torch.cuda.empty_cache()
+    def after_epoch(self):
+        # update g lr
+        self.g_lr_scheduler.step()
 
-    def train_psnr(self):
-        for epoch in range(self.start_epoch, self.epochs):
-            # The information printed by the progress bar
-            batch_time = AverageMeter("Time", ":6.3f")
-            data_time = AverageMeter("Data", ":6.3f")
-            losses = AverageMeter("Loss", ":6.6f")
-            progress = ProgressMeter(self.num_train_batch, [batch_time, data_time, losses], prefix=f"Epoch: [{epoch}]")
-            # train pipeline
-            # Put the generator in training mode
-            self.g_model.train()
+        # update attributes for ema model
+        self.ema.update_attr(self.g_model)
 
-            # Initialize the number of data batches to print logs on the terminal
-            batch_index = 0
+        self.eval_model()
 
-            # Initialize the data loader and load the first batch of data
-            self.train_dataloader.reset()
-            batch_data = self.train_dataloader.next()
+        # save g ckpt
+        is_best = self.psnr > self.best_psnr or self.ssim > self.best_ssim
+        ckpt = {
+            "model": deepcopy(self.g_model).half(),
+            "ema": deepcopy(self.ema.ema).half(),
+            "updates": self.ema.updates,
+            "optimizer": self.g_optimizer.state_dict(),
+            "scheduler": self.g_lr_scheduler.state_dict(),
+            "epoch": self.current_epoch,
+        }
+        save_ckpt_dir = Path(self.save_dir) / "weights"
+        save_checkpoint(ckpt, is_best, save_ckpt_dir, model_name="g_last_checkpoint", best_model_name="g_best_checkpoint")
 
-            # Get the initialization training time
-            end = time.time()
+        if self.phase == "gan":
+            # update d lr
+            self.d_lr_scheduler.step()
 
-            while batch_data is not None:
-                # Calculate the time it takes to load a batch of data
-                data_time.update(time.time() - end)
-
-                gt = batch_data["gt"].to(device=self.device, non_blocking=True)
-                gaussian_kernel1 = batch_data["gaussian_kernel1"].to(device=self.device, non_blocking=True)
-                gaussian_kernel2 = batch_data["gaussian_kernel2"].to(device=self.device, non_blocking=True)
-                sinc_kernel = batch_data["sinc_kernel"].to(device=self.device, non_blocking=True)
-                loss_weight = torch.Tensor(self.loss_pixel_weight).to(device=self.device)
-
-                # Get the degraded low-resolution image
-                gt_usm, gt, lr = degradation_process(gt,
-                                                     gaussian_kernel1,
-                                                     gaussian_kernel2,
-                                                     sinc_kernel,
-                                                     self.upscale_factor,
-                                                     self.degradation_process_parameters_dict,
-                                                     self.jpeg_operation,
-                                                     self.usm_sharpener)
-
-                # image data augmentation
-                (gt_usm, gt), lr = random_crop_torch([gt_usm, gt], lr, self.train_image_size, self.upscale_factor)
-                (gt_usm, gt), lr = random_rotate_torch([gt_usm, gt], lr, self.upscale_factor, [0, 90, 180, 270])
-                (gt_usm, gt), lr = random_vertically_flip_torch([gt_usm, gt], lr)
-                (gt_usm, gt), lr = random_horizontally_flip_torch([gt_usm, gt], lr)
-
-                # Initialize the generator gradient
-                self.g_model.zero_grad(set_to_none=True)
-
-                # Mixed precision training
-                with amp.autocast():
-                    sr = self.g_model(lr)
-                    loss = self.pixel_criterion(sr, gt_usm)
-                    loss = torch.sum(torch.mul(loss_weight, loss))
-
-                # Backpropagation
-                self.scaler.scale(loss).backward()
-                # update generator weights
-                self.scaler.step(self.g_optimizer)
-                self.scaler.update()
-
-                # update exponential average model weights
-                self.ema.update(self.g_model)
-
-                # Statistical loss value for terminal data output
-                losses.update(loss.item(), lr.size(0))
-
-                # measure elapsed time
-                batch_time.update(time.time() - end)
-                end = time.time()
-
-                # Record training log information
-                if batch_index % 100 == 0:
-                    # Writer Loss to file
-                    self.tblogger.add_scalar("Train/Loss", loss.item(), batch_index + epoch * self.train_batch_size + 1)
-                    progress.display(batch_index)
-
-                # Preload the next batch of data
-                batch_data = self.train_dataloader.next()
-
-                # Add 1 to the number of data batches
-                batch_index += 1
-
-            # Update the learning rate after each training epoch
-            self.g_lr_scheduler.step()
-
-            # Evaluate the model after each training epoch
-            psnr, ssim, _ = self.evaler.evaluate(self.val_dataloader, self.g_model, self.device)
-            # update attributes for ema model
-            self.ema.update_attr(self.g_model)
-
-            # save ckpt
-            is_best = psnr > self.best_psnr or ssim > self.best_ssim
+            # save d ckpt
+            is_best = self.niqe < self.best_niqe
             ckpt = {
-                "model": deepcopy(self.g_model).half(),
-                "ema": deepcopy(self.ema.ema).half(),
-                "updates": self.ema.updates,
-                "optimizer": self.g_optimizer.state_dict(),
-                "scheduler": self.g_lr_scheduler.state_dict(),
-                "epoch": epoch,
+                "model": deepcopy(self.d_model).half(),
+                "ema": None,
+                "updates": None,
+                "optimizer": self.d_optimizer.state_dict(),
+                "scheduler": self.d_lr_scheduler.state_dict(),
+                "epoch": self.current_epoch,
             }
-            save_ckpt_dir = Path(self.save_dir) / "weights"
-            save_checkpoint(ckpt, is_best, save_ckpt_dir, model_name="g_last_checkpoint", best_model_name="g_best_checkpoint")
 
-            del ckpt
+        del ckpt
 
-    def train_gan(self):
-        pass
+    def eval_model(self):
+        self.psnr, self.ssim, self.niqe = self.evaler.evaluate(self.val_dataloader, self.g_model, self.device)
+        LOGGER.info(f"Epoch: {self.current_epoch} | PSNR: {self.psnr:.2f} | SSIM: {self.ssim:.4f} | NIQE: {self.niqe:.2f}")

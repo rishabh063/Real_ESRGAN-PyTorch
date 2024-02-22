@@ -12,6 +12,7 @@
 # limitations under the License.
 # ==============================================================================
 from pathlib import Path
+from typing import Tuple
 
 import cv2
 import numpy as np
@@ -47,7 +48,7 @@ class PairedImageDataset(torch.utils.data.Dataset):
         self.paired_gt_image_file_names = [p for p in paired_gt_images_dir.glob("*")]
         self.paired_lr_image_file_names = [p for p in paired_lr_images_dir.glob("*")]
 
-    def __getitem__(self, batch_index: int) -> dict[str, Tensor]:
+    def __getitem__(self, batch_index: int) -> tuple[Tensor, Tensor]:
         # read a batch of images
         gt_image = cv2.imread(str(self.paired_gt_image_file_names[batch_index])).astype(np.float32) / 255.
         lr_image = cv2.imread(str(self.paired_lr_image_file_names[batch_index])).astype(np.float32) / 255.
@@ -60,7 +61,7 @@ class PairedImageDataset(torch.utils.data.Dataset):
         gt_tensor = image_to_tensor(gt_image, False, False)
         lr_tensor = image_to_tensor(lr_image, False, False)
 
-        return {"gt": gt_tensor, "lr": lr_tensor}
+        return gt_tensor, lr_tensor
 
     def __len__(self) -> int:
         return len(self.paired_gt_image_file_names)

@@ -16,7 +16,7 @@ import random
 import cv2
 import numpy as np
 import torch
-from omegaconf import DictConfig
+from omegaconf import OmegaConf, DictConfig
 from scipy import special
 from scipy.stats import multivariate_normal
 from torch import Tensor, nn
@@ -74,11 +74,11 @@ def degradation_process(
         out = filter2D_torch(gt_usm, gaussian_kernel1)
 
     # Resize
-    updown_type = random.choices(["up", "down", "keep"], list(degradation_process_parameters_dict.RESIZE_PROBABILITY1))[0]
+    updown_type = random.choices(["up", "down", "keep"], OmegaConf.to_container(degradation_process_parameters_dict.RESIZE_PROBABILITY1))[0]
     if updown_type == "up":
-        scale = np.random.uniform(1, list(degradation_process_parameters_dict.RESIZE_RANGE1)[1])
+        scale = np.random.uniform(1, OmegaConf.to_container(degradation_process_parameters_dict.RESIZE_RANGE1)[1])
     elif updown_type == "down":
-        scale = np.random.uniform(list(degradation_process_parameters_dict.RESIZE_RANGE1)[0], 1)
+        scale = np.random.uniform(OmegaConf.to_container(degradation_process_parameters_dict.RESIZE_RANGE1)[0], 1)
     else:
         scale = 1
     mode = random.choice(["area", "bilinear", "bicubic"])
@@ -102,7 +102,7 @@ def degradation_process(
 
     # JPEG compression
     quality = out.new_zeros(out.size(0))
-    quality = quality.uniform_(*list(degradation_process_parameters_dict.JPEG_RANGE1))
+    quality = quality.uniform_(*OmegaConf.to_container(degradation_process_parameters_dict.JPEG_RANGE1))
     out = torch.clamp(out, 0, 1)  # clamp to [0, 1], otherwise JPEGer will result in unpleasant artifacts
     out = jpeg_operation(out, quality)
 
@@ -112,11 +112,11 @@ def degradation_process(
         out = filter2D_torch(out, gaussian_kernel2)
 
     # Resize
-    updown_type = random.choices(["up", "down", "keep"], list(degradation_process_parameters_dict.RESIZE_PROBABILITY2))[0]
+    updown_type = random.choices(["up", "down", "keep"], OmegaConf.to_container(degradation_process_parameters_dict.RESIZE_PROBABILITY2))[0]
     if updown_type == "up":
-        scale = np.random.uniform(1, list(degradation_process_parameters_dict.RESIZE_RANGE2)[1])
+        scale = np.random.uniform(1, OmegaConf.to_container(degradation_process_parameters_dict.RESIZE_RANGE2)[1])
     elif updown_type == "down":
-        scale = np.random.uniform(list(degradation_process_parameters_dict.RESIZE_RANGE2)[0], 1)
+        scale = np.random.uniform(OmegaConf.to_container(degradation_process_parameters_dict.RESIZE_RANGE2)[0], 1)
     else:
         scale = 1
     mode = random.choice(["area", "bilinear", "bicubic"])
@@ -150,13 +150,13 @@ def degradation_process(
         out = filter2D_torch(out, sinc_kernel)
 
         quality = out.new_zeros(out.size(0))
-        quality = quality.uniform_(*list(degradation_process_parameters_dict.JPEG_RANGE2))
+        quality = quality.uniform_(*OmegaConf.to_container(degradation_process_parameters_dict.JPEG_RANGE2))
         out = torch.clamp(out, 0, 1)
         out = jpeg_operation(out, quality)
     else:
         # JPEG compression -> reduction -> Sinc filter
         quality = out.new_zeros(out.size(0))
-        quality = quality.uniform_(*list(degradation_process_parameters_dict.JPEG_RANGE2))
+        quality = quality.uniform_(*OmegaConf.to_container(degradation_process_parameters_dict.JPEG_RANGE2))
         out = torch.clamp(out, 0, 1)
         out = jpeg_operation(out, quality)
 
@@ -528,18 +528,18 @@ def _generate_bivariate_plateau_gaussian_kernel(kernel_size: int,
 
 
 def _random_bivariate_gaussian_kernel(kernel_size: int,
-                                      sigma_x_range: tuple,
-                                      sigma_y_range: tuple,
-                                      rotation_range: tuple,
-                                      noise_range: tuple = None,
+                                      sigma_x_range: list,
+                                      sigma_y_range: list,
+                                      rotation_range: list,
+                                      noise_range: list = None,
                                       isotropic: bool = True) -> np.ndarray:
     """Randomly generate bivariate isotropic or anisotropic Gaussian kernels
 
     Args:
         kernel_size (int): Gaussian kernel size
-        sigma_x_range (float): Sigma range along the horizontal axis
-        sigma_y_range (float): Sigma range along the vertical axis
-        rotation_range (tuple): Gaussian kernel rotation matrix angle range value
+        sigma_x_range (list): Sigma range along the horizontal axis
+        sigma_y_range (list): Sigma range along the vertical axis
+        rotation_range (list): Gaussian kernel rotation matrix angle range value
         noise_range(optional, tuple): multiplicative kernel noise. Default: None
         isotropic (optional, bool): Set to `True` for homosexual plateau kernel, set to `False` for heterosexual plateau kernel. (Default: ``True``)
 
@@ -575,21 +575,21 @@ def _random_bivariate_gaussian_kernel(kernel_size: int,
 
 
 def _random_bivariate_generalized_gaussian_kernel(kernel_size: int,
-                                                  sigma_x_range: tuple,
-                                                  sigma_y_range: tuple,
-                                                  rotation_range: tuple,
-                                                  beta_range: tuple,
-                                                  noise_range: tuple = None,
+                                                  sigma_x_range: list,
+                                                  sigma_y_range: list,
+                                                  rotation_range: list,
+                                                  beta_range: list,
+                                                  noise_range: list = None,
                                                   isotropic: bool = True) -> np.ndarray:
     """Randomly generate bivariate generalized Gaussian kernels
 
     Args:
         kernel_size (int): Gaussian kernel size
-        sigma_x_range (float): Sigma range along the horizontal axis
-        sigma_y_range (float): Sigma range along the vertical axis
-        rotation_range (tuple): Gaussian kernel rotation matrix angle range value
-        beta_range (tuple): Gaussian kernel beta matrix angle range value
-        noise_range(optional, tuple): multiplicative kernel noise. Default: None
+        sigma_x_range (list): Sigma range along the horizontal axis
+        sigma_y_range (list): Sigma range along the vertical axis
+        rotation_range (list): Gaussian kernel rotation matrix angle range value
+        beta_range (list): Gaussian kernel beta matrix angle range value
+        noise_range(optional, list): multiplicative kernel noise. Default: None
         isotropic (optional, bool): Set to `True` for homosexual plateau kernel, set to `False` for heterosexual plateau kernel. (Default: ``True``)
 
     Returns:
@@ -633,21 +633,21 @@ def _random_bivariate_generalized_gaussian_kernel(kernel_size: int,
 
 
 def _random_bivariate_plateau_gaussian_kernel(kernel_size: int,
-                                              sigma_x_range: tuple,
-                                              sigma_y_range: tuple,
-                                              rotation_range: tuple,
-                                              beta_range: tuple,
-                                              noise_range: tuple = None,
+                                              sigma_x_range: list,
+                                              sigma_y_range: list,
+                                              rotation_range: list,
+                                              beta_range: list,
+                                              noise_range: list = None,
                                               isotropic: bool = True) -> np.ndarray:
     """Randomly generate bivariate plateau kernels
 
     Args:
         kernel_size (int): Gaussian kernel size
-        sigma_x_range (float): Sigma range along the horizontal axis
-        sigma_y_range (float): Sigma range along the vertical axis
-        rotation_range (tuple): Gaussian kernel rotation matrix angle range value
-        beta_range (tuple): Gaussian kernel beta matrix angle range value
-        noise_range(tuple, optional): multiplicative kernel noise. Default: None
+        sigma_x_range (list): Sigma range along the horizontal axis
+        sigma_y_range (list): Sigma range along the vertical axis
+        rotation_range (list): Gaussian kernel rotation matrix angle range value
+        beta_range (list): Gaussian kernel beta matrix angle range value
+        noise_range(tuple, list): multiplicative kernel noise. Default: None
         isotropic (bool): Set to `True` for homosexual plateau kernel, set to `False` for heterosexual plateau kernel. (Default: ``True``)
 
     Returns:

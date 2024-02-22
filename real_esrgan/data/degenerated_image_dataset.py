@@ -11,16 +11,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import math
 import random
 from pathlib import Path
 
 import cv2
+import math
 import numpy as np
 import torch
 import torch.utils.data
-from torch import Tensor
 from omegaconf import DictConfig
+from omegaconf import OmegaConf
+from torch import Tensor
+
 from real_esrgan.data.degradations import random_mixed_kernels, generate_sinc_kernel
 from real_esrgan.utils.imgproc import image_to_tensor
 
@@ -58,9 +60,9 @@ class DegeneratedImageDataset(torch.utils.data.Dataset):
     def __getitem__(
             self,
             batch_index: int
-    ) -> [Tensor, Tensor, Tensor] or [Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         # Generate a first-order degenerate Gaussian kernel
-        gaussian_kernel_size1 = random.choice(list(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE))
+        gaussian_kernel_size1 = random.choice(OmegaConf.to_container(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE))
         if np.random.uniform() < self.degradation_model_parameters_dict.SINC_KERNEL_PROBABILITY1:
             # This sinc filter setting applies to kernels in the range [7, 21] and can be adjusted dynamically
             if gaussian_kernel_size1 < int(np.median(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE)):
@@ -73,24 +75,24 @@ class DegeneratedImageDataset(torch.utils.data.Dataset):
                 padding=False)
         else:
             gaussian_kernel1 = random_mixed_kernels(
-                list(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_TYPE),
-                list(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_PROBABILITY1),
+                OmegaConf.to_container(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_TYPE),
+                OmegaConf.to_container(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_PROBABILITY1),
                 gaussian_kernel_size1,
-                list(self.degradation_model_parameters_dict.GAUSSIAN_SIGMA_RANGE1),
-                list(self.degradation_model_parameters_dict.GAUSSIAN_SIGMA_RANGE1),
+                OmegaConf.to_container(self.degradation_model_parameters_dict.GAUSSIAN_SIGMA_RANGE1),
+                OmegaConf.to_container(self.degradation_model_parameters_dict.GAUSSIAN_SIGMA_RANGE1),
                 [-math.pi, math.pi],
-                list(self.degradation_model_parameters_dict.GENERALIZED_KERNEL_BETA_RANGE1),
-                list(self.degradation_model_parameters_dict.PLATEAU_KERNEL_BETA_RANGE1),
+                OmegaConf.to_container(self.degradation_model_parameters_dict.GENERALIZED_KERNEL_BETA_RANGE1),
+                OmegaConf.to_container(self.degradation_model_parameters_dict.PLATEAU_KERNEL_BETA_RANGE1),
                 noise_range=None)
         # First-order degenerate Gaussian fill kernel size
-        pad_size = (list(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE)[-1] - gaussian_kernel_size1) // 2
+        pad_size = (OmegaConf.to_container(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE)[-1] - gaussian_kernel_size1) // 2
         gaussian_kernel1 = np.pad(gaussian_kernel1, ((pad_size, pad_size), (pad_size, pad_size)))
 
         # Generate a second-order degenerate Gaussian kernel
         gaussian_kernel_size2 = random.choice(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE)
         if np.random.uniform() < self.degradation_model_parameters_dict.SINC_KERNEL_PROBABILITY2:
             # This sinc filter setting applies to kernels in the range [7, 21] and can be adjusted dynamically
-            if gaussian_kernel_size2 < int(np.median(list(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE))):
+            if gaussian_kernel_size2 < int(np.median(OmegaConf.to_container(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE))):
                 omega_c = np.random.uniform(np.pi / 3, np.pi)
             else:
                 omega_c = np.random.uniform(np.pi / 5, np.pi)
@@ -100,23 +102,23 @@ class DegeneratedImageDataset(torch.utils.data.Dataset):
                 padding=False)
         else:
             gaussian_kernel2 = random_mixed_kernels(
-                list(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_TYPE),
-                list(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_PROBABILITY2),
+                OmegaConf.to_container(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_TYPE),
+                OmegaConf.to_container(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_PROBABILITY2),
                 gaussian_kernel_size2,
-                list(self.degradation_model_parameters_dict.GAUSSIAN_SIGMA_RANGE2),
-                list(self.degradation_model_parameters_dict.GAUSSIAN_SIGMA_RANGE2),
+                OmegaConf.to_container(self.degradation_model_parameters_dict.GAUSSIAN_SIGMA_RANGE2),
+                OmegaConf.to_container(self.degradation_model_parameters_dict.GAUSSIAN_SIGMA_RANGE2),
                 [-math.pi, math.pi],
-                list(self.degradation_model_parameters_dict.GENERALIZED_KERNEL_BETA_RANGE2),
-                list(self.degradation_model_parameters_dict.PLATEAU_KERNEL_BETA_RANGE2),
+                OmegaConf.to_container(self.degradation_model_parameters_dict.GENERALIZED_KERNEL_BETA_RANGE2),
+                OmegaConf.to_container(self.degradation_model_parameters_dict.PLATEAU_KERNEL_BETA_RANGE2),
                 noise_range=None)
 
         # second-order degenerate Gaussian fill kernel size
-        pad_size = (list(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE)[-1] - gaussian_kernel_size2) // 2
+        pad_size = (OmegaConf.to_container(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE)[-1] - gaussian_kernel_size2) // 2
         gaussian_kernel2 = np.pad(gaussian_kernel2, ((pad_size, pad_size), (pad_size, pad_size)))
 
         # Sinc filter kernel
         if np.random.uniform() < self.degradation_model_parameters_dict.SINC_KERNEL_PROBABILITY3:
-            gaussian_kernel_size2 = random.choice(list(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE))
+            gaussian_kernel_size2 = random.choice(OmegaConf.to_container(self.degradation_model_parameters_dict.GAUSSIAN_KERNEL_RANGE))
             omega_c = np.random.uniform(np.pi / 3, np.pi)
             sinc_kernel = generate_sinc_kernel(
                 omega_c,
@@ -139,10 +141,7 @@ class DegeneratedImageDataset(torch.utils.data.Dataset):
         # Convert the RGB image data channel to a data format supported by PyTorch
         gt_tensor = image_to_tensor(gt_image, False, False)
 
-        return {"gt": gt_tensor,
-                "gaussian_kernel1": gaussian_kernel1,
-                "gaussian_kernel2": gaussian_kernel2,
-                "sinc_kernel": sinc_kernel}
+        return gt_tensor, gaussian_kernel1, gaussian_kernel2, sinc_kernel
 
     def __len__(self) -> int:
         return len(self.gt_image_file_names)

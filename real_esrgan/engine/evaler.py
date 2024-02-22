@@ -19,10 +19,9 @@ from omegaconf import DictConfig
 from torch import nn
 
 from real_esrgan.data.paired_image_dataset import PairedImageDataset
-from real_esrgan.data.prefetcher import CUDAPrefetcher, CPUPrefetcher
 from real_esrgan.evaluation.metrics import PSNR, SSIM, NIQE
 from real_esrgan.utils.checkpoint import load_checkpoint
-from real_esrgan.utils.events import LOGGER, AverageMeter, ProgressMeter
+from real_esrgan.utils.events import LOGGER, AverageMeter, ProgressMeter, Summary
 from real_esrgan.utils.torch_utils import get_model_info
 
 
@@ -56,11 +55,6 @@ class Evaler:
                                                      drop_last=False,
                                                      persistent_workers=True)
 
-        # Replace the data set iterator with CUDA to speed up
-        if self.device.type == "cuda":
-            val_dataloader = CUDAPrefetcher(val_dataloader, self.device)
-        else:
-            val_dataloader = CPUPrefetcher(val_dataloader)
         return val_dataloader
 
     def load_model(self) -> nn.Module:
@@ -71,33 +65,26 @@ class Evaler:
         model.eval()
         return model
 
-    def evaluate(self, dataloader: Any = None, model: nn.Module = None, device: torch.device = torch.device("cpu")) -> tuple[Any, Any, Any]:
+    def evaluate(self, dataloader: Any, model: nn.Module, device: torch.device) -> tuple[Any, Any, Any]:
         # The information printed by the progress bar
-        batch_time = AverageMeter("Time", ":6.3f")
-        psnres = AverageMeter("PSNR", ":4.2f")
-        ssimes = AverageMeter("SSIM", ":4.4f")
-        niqees = AverageMeter("NIQE", ":4.2f")
+        batch_time = AverageMeter("Time", ":6.3f", Summary.NONE)
+        psnres = AverageMeter("PSNR", ":4.2f", Summary.AVERAGE)
+        ssimes = AverageMeter("SSIM", ":4.4f", Summary.AVERAGE)
+        niqees = AverageMeter("NIQE", ":4.2f", Summary.AVERAGE)
         progress = ProgressMeter(len(dataloader), [batch_time, psnres, ssimes, niqees], prefix=f"Eval: ")
 
         # Set the model as validation model
         model.eval()
-
-        # Initialize data batches
-        batch_index = 0
-
-        # Set the data set iterator pointer to 0 and load the first batch of data
-        dataloader.reset()
-        batch_data = dataloader.next()
 
         # Record the start time of verifying a batch
         end = time.time()
 
         # Disable gradient propagation
         with torch.no_grad():
-            while batch_data is not None:
+            for i, (gt, lr) in enumerate(dataloader):
                 # Load batches of data
-                gt = batch_data["gt"].to(device=device, non_blocking=True)
-                lr = batch_data["lr"].to(device=device, non_blocking=True)
+                gt = gt.to(device=device, non_blocking=True)
+                lr = lr.to(device=device, non_blocking=True)
 
                 # inference
                 sr = model(lr)
@@ -116,18 +103,6 @@ class Evaler:
                 end = time.time()
 
                 # Output a verification log information
-                progress.display(batch_index + 1)
+                progress.display(i + 1)
 
-                # Preload the next batch of data
-                batch_data = dataloader.next()
-
-                # Add 1 to the number of data batches
-                batch_index += 1
-
-            # Print the performance index of the model at the current epoch
-            progress.display_summary()
-
-        psnr, ssim, niqe = psnres.avg, ssimes.avg, niqees.avg
-        LOGGER.info(f"PSNR: {psnr:.2f}, SSIM: {ssim:.4f}, NIQE: {niqe:.2f}")
-
-        return psnr, ssim, niqe
+        return psnres.avg, ssimes.avg, niqees.avg

@@ -18,6 +18,7 @@ from torch.nn.utils import spectral_norm
 
 __all__ = [
     "DiscriminatorForUNet",
+    "discriminator_for_unet",
 ]
 
 
@@ -102,3 +103,7 @@ class DiscriminatorForUNet(nn.Module):
         out = self.conv_4(out)
 
         return out
+
+
+def discriminator_for_unet(**kwargs) -> DiscriminatorForUNet:
+    return DiscriminatorForUNet(**kwargs)
