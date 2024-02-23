@@ -91,7 +91,7 @@ TRAIN:
 
       LR_SCHEDULER:
         TYPE: "multistep_lr"
-        milestones: [ 5, 10, 20, 30 ]  # 0.125, 0.250, 0.5, 0.75
+        MILESTONES: [ 5, 10, 20, 30 ]  # 0.125, 0.250, 0.5, 0.75
         GAMMA: 0.5
     D:
       OPTIM:
@@ -103,7 +103,7 @@ TRAIN:
 
       LR_SCHEDULER:
         TYPE: "multistep_lr"
-        milestones: [ 5, 10, 20, 30 ]  # 0.125, 0.250, 0.5, 0.75
+        MILESTONES: [ 5, 10, 20, 30 ]  # 0.125, 0.250, 0.5, 0.75
         GAMMA: 0.5
 
   # loss config
