@@ -57,6 +57,9 @@ class DegeneratedImageDataset(torch.utils.data.Dataset):
         self.sinc_tensor[degradation_model_parameters_dict.SINC_KERNEL_SIZE // 2,
                          degradation_model_parameters_dict.SINC_KERNEL_SIZE // 2] = 1
 
+        if len(self.gt_image_file_names) == 0:
+            raise ValueError(f"No images found in {gt_images_dir}")
+
     def __getitem__(
             self,
             batch_index: int

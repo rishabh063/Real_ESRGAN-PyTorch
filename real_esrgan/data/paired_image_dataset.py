@@ -48,6 +48,13 @@ class PairedImageDataset(torch.utils.data.Dataset):
         self.paired_gt_image_file_names = [p for p in paired_gt_images_dir.glob("*")]
         self.paired_lr_image_file_names = [p for p in paired_lr_images_dir.glob("*")]
 
+        if len(self.paired_gt_image_file_names) == 0:
+            raise ValueError(f"No images found in {paired_gt_images_dir}")
+        if len(self.paired_lr_image_file_names) == 0:
+            raise ValueError(f"No images found in {paired_lr_images_dir}")
+        if len(self.paired_gt_image_file_names) != len(self.paired_lr_image_file_names):
+            raise ValueError(f"The number of images in {paired_gt_images_dir} and {paired_lr_images_dir} is different")
+
     def __getitem__(self, batch_index: int) -> tuple[Tensor, Tensor]:
         # read a batch of images
         gt_image = cv2.imread(str(self.paired_gt_image_file_names[batch_index])).astype(np.float32) / 255.

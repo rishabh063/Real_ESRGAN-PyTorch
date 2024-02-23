@@ -353,7 +353,7 @@ class Trainer:
                 factor=self.train_config_dict.SOLVER.G.LR_SCHEDULER.FACTOR,
                 total_iters=self.train_config_dict.SOLVER.G.LR_SCHEDULER.TOTAL_ITERS)
 
-        LOGGER.info(f"G lr_scheduler: `{g_lr_scheduler}`")
+        LOGGER.info(f"G lr_scheduler: `{lr_scheduler_type}`")
         return g_lr_scheduler
 
     def get_d_lr_scheduler(self):
@@ -377,7 +377,7 @@ class Trainer:
                 factor=self.train_config_dict.SOLVER.D.LR_SCHEDULER.FACTOR,
                 total_iters=self.train_config_dict.SOLVER.D.LR_SCHEDULER.TOTAL_ITERS)
 
-        LOGGER.info(f"D lr_scheduler: `{d_lr_scheduler}`")
+        LOGGER.info(f"D lr_scheduler: `{lr_scheduler_type}`")
         return d_lr_scheduler
 
     def resume_g_model(self):
@@ -683,7 +683,7 @@ class Trainer:
             # save d ckpt
             is_best = self.niqe < self.best_niqe
             ckpt = {
-                "model": deepcopy(self.d_model).half(),
+                "model": self.d_model,
                 "ema": None,
                 "updates": None,
                 "optimizer": self.d_optimizer.state_dict(),

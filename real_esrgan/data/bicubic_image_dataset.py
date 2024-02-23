@@ -46,6 +46,9 @@ class BicubicImageDataset(torch.utils.data.Dataset):
             gt_images_dir = Path(gt_images_dir)
         self.gt_image_file_names = [p for p in gt_images_dir.glob("*")]
 
+        if len(self.gt_image_file_names) == 0:
+            raise ValueError(f"No images found in {gt_images_dir}")
+
     def __getitem__(self, batch_index: int) -> tuple[Tensor, Tensor]:
         # read a batch of images
         gt_image = cv2.imread(str(self.gt_image_file_names[batch_index])).astype(np.float32) / 255.
