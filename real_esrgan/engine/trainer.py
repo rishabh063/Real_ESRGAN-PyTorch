@@ -612,10 +612,10 @@ class Trainer:
                 self.tblogger.add_scalar("Train/D_Loss", d_loss.item(), iters)
                 self.tblogger.add_scalar("Train/G_Loss", g_loss.item(), iters)
                 self.tblogger.add_scalar("Train/Pixel_Loss", pixel_loss.item(), iters)
-                self.tblogger.add_scalar("Train/Content_Loss", feature_loss.item(), iters)
-                self.tblogger.add_scalar("Train/Adversarial_Loss", adv_loss.item(), iters)
-                self.tblogger.add_scalar("Train/D(GT)_Probability", d_gt_prob.item(), iters)
-                self.tblogger.add_scalar("Train/D(SR)_Probability", d_sr_prob.item(), iters)
+                self.tblogger.add_scalar("Train/Feature_Loss", feature_loss.item(), iters)
+                self.tblogger.add_scalar("Train/Adv_Loss", adv_loss.item(), iters)
+                self.tblogger.add_scalar("Train/D(GT)_Prob", d_gt_prob.item(), iters)
+                self.tblogger.add_scalar("Train/D(SR)_Prob", d_sr_prob.item(), iters)
                 self.progress.display(i + 1)
 
     def before_train_loop(self):
