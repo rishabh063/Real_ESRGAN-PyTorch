@@ -1,5 +1,5 @@
 DEVICE: "0" # "0" means GPU 0, "0,1" means GPU 0 and 1, etc.
-EXP_NAME: "realesrgan_x4-dfo2k_degradation" # Name of the experiment
+EXP_NAME: "realesrgan_x4-df2k_degradation" # Name of the experiment
 PHASE: "gan" # psnr, gan
 UPSCALE_FACTOR: 4
 
@@ -71,7 +71,7 @@ TRAIN:
   RESUME_D: ""
 
   # train weights
-  G_WEIGHTS_PATH: "results/train/realesrnet_x4-dfo2k_degradation/weights/g_best_checkpoint.pkl"
+  G_WEIGHTS_PATH: "results/train/realesrnet_x4-df2k_degradation/weights/g_best_checkpoint.pkl"
   D_WEIGHTS_PATH: ""
 
   # train datasets
@@ -91,7 +91,7 @@ TRAIN:
 
       LR_SCHEDULER:
         TYPE: "multistep_lr"
-        milestones: [ 12, 24, 48, 68 ]  # 0.125, 0.250, 0.5, 0.75
+        milestones: [ 5, 10, 20, 30 ]  # 0.125, 0.250, 0.5, 0.75
         GAMMA: 0.5
     D:
       OPTIM:
@@ -103,7 +103,7 @@ TRAIN:
 
       LR_SCHEDULER:
         TYPE: "multistep_lr"
-        milestones: [ 12, 24, 48, 68 ]  # 0.125, 0.250, 0.5, 0.75
+        milestones: [ 5, 10, 20, 30 ]  # 0.125, 0.250, 0.5, 0.75
         GAMMA: 0.5
 
   # loss config
@@ -119,7 +119,7 @@ TRAIN:
       WEIGHT: [ 0.1 ]
 
   # train hyper-parameters
-  EPOCHS: 90  # 90 * 11160 = 1,004,400 ~= 1,000,000 iters
+  EPOCHS: 36  # 36 * 11160 = 401,760 ~= 400,000 iters
 
   # train setup
   LOCAL_RANK: -1
@@ -132,6 +132,6 @@ TRAIN:
   VERBOSE: True
 
 EVAL:
-  WEIGHTS_PATH: "results/pretrained_models/realesrgan_x4-dfo2k_degradation.pkl"
+  WEIGHTS_PATH: "results/pretrained_models/realesrgan_x4-df2k_degradation.pkl"
   NIQE_WEIGHTS_PATH: "results/pretrained_models/niqe_model.mat"
   ONLY_TEST_Y_CHANNEL: True
