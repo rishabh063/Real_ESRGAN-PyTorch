@@ -130,7 +130,7 @@ class Trainer:
         # train loss
         self.pixel_loss = self.train_config_dict.LOSS.get("PIXEL", "")
         self.feature_loss = self.train_config_dict.LOSS.get("FEATURE", "")
-        self.adv_loss = self.train_config_dict.LOSS.get("GAN", "")
+        self.adv_loss = self.train_config_dict.LOSS.get("ADV", "")
         if self.pixel_loss:
             self.pixel_loss_type = self.pixel_loss.get("TYPE", "")
             self.pixel_loss_weight = OmegaConf.to_container(self.pixel_loss.get("WEIGHT", []))
