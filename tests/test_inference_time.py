@@ -25,8 +25,9 @@ starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_t
 def main():
     cuda_device = torch.device("cuda:0")
     cpu_device = torch.device("cpu")
-    cuda_tensor = torch.randn(1, 3, 64, 64).to(cuda_device)
-    cpu_tensor = torch.randn(1, 3, 64, 64).to(cpu_device)
+    tensor_shape = [1, 3, 256, 256]
+    cuda_tensor = torch.randn(tensor_shape).to(cuda_device)
+    cpu_tensor = cuda_tensor.to(cpu_device)
 
     print(f"=============== CUDA ===============")
     benchmark_all_edsr_models(cuda_device, cuda_tensor)
