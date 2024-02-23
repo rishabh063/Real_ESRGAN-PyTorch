@@ -45,7 +45,7 @@ DEGRADATION_PROCESS_PARAMETERS_DICT:
 
 DATASET:
   MODE: "degradation" # degradation, paired
-  TRAIN_GT_IMAGES_DIR: "data/DFO2K/sub_image_384x384"
+  TRAIN_GT_IMAGES_DIR: "data/DF2K/DF2K_sub_image_384x384"  # 178574 images
   TRAIN_LR_IMAGES_DIR: ""
 
   VAL_GT_IMAGES_DIR: "data/Set5/X4/GT"
@@ -76,50 +76,50 @@ TRAIN:
 
   # train datasets
   IMAGE_SIZE: 256
-  BATCH_SIZE: 16
+  BATCH_SIZE: 16  # 178574 / 16 ~= 11160 iters / epoch
   NUM_WORKERS: 4
 
   # train solver
   SOLVER:
     G:
       OPTIM:
-        TYPE: "Adam"
+        TYPE: "adam"
         LR: 0.0001
         BETAS: [ 0.9, 0.99 ]
         EPS: 0.0001 # Ensure mixed precision training does not appear Nan
         WEIGHT_DECAY: 0.0
 
       LR_SCHEDULER:
-        TYPE: "MultiStepLR"
-        milestones: [ 4, 8, 16, 26 ]  # 0.125, 0.250, 0.5, 0.75
+        TYPE: "multistep_lr"
+        milestones: [ 12, 24, 48, 68 ]  # 0.125, 0.250, 0.5, 0.75
         GAMMA: 0.5
     D:
       OPTIM:
-        TYPE: "Adam"
+        TYPE: "adam"
         LR: 0.0001
         BETAS: [ 0.9, 0.99 ]
         EPS: 0.0001 # Ensure mixed precision training does not appear Nan
         WEIGHT_DECAY: 0.0
 
       LR_SCHEDULER:
-        TYPE: "MultiStepLR"
-        milestones: [ 4, 8, 16, 26 ]  # 0.125, 0.250, 0.5, 0.75
+        TYPE: "multistep_lr"
+        milestones: [ 12, 24, 48, 68 ]  # 0.125, 0.250, 0.5, 0.75
         GAMMA: 0.5
 
   # loss config
   LOSS:
     PIXEL:
-      TYPE: "l1"
+      TYPE: "l1_loss"
       WEIGHT: [ 1.0 ]
     FEATURE:
       TYPE: "feature_loss"
       WEIGHT: [ 0.1, 0.1, 1.0, 1.0, 1.0 ]
     ADV:
-      TYPE: "vanilla_gan"
+      TYPE: "bce_with_logits_loss"
       WEIGHT: [ 0.1 ]
 
   # train hyper-parameters
-  EPOCHS: 35  # 35 * 11869 = 415,415 ~= 400,000 iters
+  EPOCHS: 90  # 90 * 11160 = 1,004,400 ~= 1,000,000 iters
 
   # train setup
   LOCAL_RANK: -1

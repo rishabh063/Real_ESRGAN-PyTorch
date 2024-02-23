@@ -307,8 +307,8 @@ class Trainer:
 
     def get_g_optimizer(self):
         optim_type = self.train_config_dict.SOLVER.G.OPTIM.TYPE
-        if optim_type not in ["Adam"]:
-            raise NotImplementedError(f"G optimizer {optim_type} is not implemented. Only support `Adam`.")
+        if optim_type not in ["adam"]:
+            raise NotImplementedError(f"G optimizer {optim_type} is not implemented. Only support `adam`.")
 
         g_optimizer = optim.Adam(self.g_model.parameters(),
                                  lr=self.train_config_dict.SOLVER.G.OPTIM.LR,
@@ -321,8 +321,8 @@ class Trainer:
 
     def get_d_optimizer(self):
         optim_type = self.train_config_dict.SOLVER.D.OPTIM.TYPE
-        if optim_type not in ["Adam"]:
-            raise NotImplementedError(f"D optimizer {optim_type} is not implemented. Only support `Adam`.")
+        if optim_type not in ["adam"]:
+            raise NotImplementedError(f"D optimizer {optim_type} is not implemented. Only support `adam`.")
 
         d_optimizer = optim.Adam(self.d_model.parameters(),
                                  lr=self.train_config_dict.SOLVER.D.OPTIM.LR,
@@ -334,15 +334,15 @@ class Trainer:
 
     def get_g_lr_scheduler(self):
         lr_scheduler_type = self.train_config_dict.SOLVER.G.LR_SCHEDULER.TYPE
-        if lr_scheduler_type not in ["StepLR", "MultiStepLR", "Constant"]:
-            raise NotImplementedError(f"G scheduler {lr_scheduler_type} is not implemented. Only support [`StepLR`, `MultiStepLR`, `Constant`].")
+        if lr_scheduler_type not in ["step_lr", "multistep_lr", "constant"]:
+            raise NotImplementedError(f"G scheduler {lr_scheduler_type} is not implemented. Only support [`step_lr`, `multistep_lr`, `constant`].")
 
-        if lr_scheduler_type == "StepLR":
+        if lr_scheduler_type == "step_lr":
             g_lr_scheduler = optim.lr_scheduler.StepLR(
                 self.g_optimizer,
                 step_size=self.train_config_dict.SOLVER.G.LR_SCHEDULER.STEP_SIZE,
                 gamma=self.train_config_dict.SOLVER.G.LR_SCHEDULER.GAMMA)
-        elif lr_scheduler_type == "MultiStepLR":
+        elif lr_scheduler_type == "multistep_lr":
             g_lr_scheduler = optim.lr_scheduler.MultiStepLR(
                 self.g_optimizer,
                 milestones=OmegaConf.to_container(self.train_config_dict.SOLVER.G.LR_SCHEDULER.MILESTONES),
@@ -358,15 +358,15 @@ class Trainer:
 
     def get_d_lr_scheduler(self):
         lr_scheduler_type = self.train_config_dict.SOLVER.D.LR_SCHEDULER.TYPE
-        if lr_scheduler_type not in ["StepLR", "MultiStepLR", "Constant"]:
-            raise NotImplementedError(f"G scheduler {lr_scheduler_type} is not implemented. Only support [`StepLR`, `MultiStepLR`, `Constant`].")
+        if lr_scheduler_type not in ["step_lr", "multistep_lr", "constant"]:
+            raise NotImplementedError(f"G scheduler {lr_scheduler_type} is not implemented. Only support [`step_lr`, `multistep_lr`, `constant`].")
 
-        if lr_scheduler_type == "StepLR":
+        if lr_scheduler_type == "step_lr":
             d_lr_scheduler = optim.lr_scheduler.StepLR(
                 self.d_optimizer,
                 step_size=self.train_config_dict.SOLVER.D.LR_SCHEDULER.STEP_SIZE,
                 gamma=self.train_config_dict.SOLVER.D.LR_SCHEDULER.GAMMA)
-        elif lr_scheduler_type == "MultiStepLR":
+        elif lr_scheduler_type == "multistep_lr":
             d_lr_scheduler = optim.lr_scheduler.MultiStepLR(
                 self.d_optimizer,
                 milestones=OmegaConf.to_container(self.train_config_dict.SOLVER.D.LR_SCHEDULER.MILESTONES),
@@ -399,12 +399,12 @@ class Trainer:
         LOGGER.info(f"Resumed d model from epoch {self.start_epoch}")
 
     def define_loss(self, loss_type: str) -> Any:
-        if loss_type not in ["l1", "l2", "feature_loss", "vanilla_gan"]:
-            raise NotImplementedError(f"Loss type {loss_type} is not implemented. Only support `l1` and `l2`.")
+        if loss_type not in ["l1_loss", "l2_loss", "feature_loss", "bce_with_logits_loss"]:
+            raise NotImplementedError(f"Loss type {loss_type} is not implemented. Only support [`l1_loss`, `l2_loss`, `feature_loss`, `bce_with_logits_loss`].")
 
-        if loss_type == "l1":
+        if loss_type == "l1_loss":
             criterion = nn.L1Loss()
-        elif loss_type == "l2":
+        elif loss_type == "l2_loss":
             criterion = nn.MSELoss()
         elif loss_type == "feature_loss":
             criterion = FeatureLoss()
