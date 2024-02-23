@@ -60,7 +60,7 @@ python demo/inference_images.py configs/inference.yaml
 |                       Bicubic                        |                         Real_ESRGAN                          |
 |:----------------------------------------------------:|:------------------------------------------------------------:|
 | ![00003_bicubic_x4.jpg](figure/00003_bicubic_x4.jpg) | ![00003_real_esrgan_x4.jpg](figure/00003_real_esrgan_x4.jpg) |
-| ![0014_bicubic_x4.jpg](figure/0014_bicubic_x4.jpg))  |  ![0014_real_esrgan_x4.jpg](figure/0014_real_esrgan_x4.jpg)  |
+|  ![0014_bicubic_x4.jpg](figure/0014_bicubic_x4.jpg)  |  ![0014_real_esrgan_x4.jpg](figure/0014_real_esrgan_x4.jpg)  |
 |  ![0030_bicubic_x4.jpg](figure/0030_bicubic_x4.jpg)  |  ![0030_real_esrgan_x4.jpg](figure/0030_real_esrgan_x4.jpg)  |
 
 ## Inference video
