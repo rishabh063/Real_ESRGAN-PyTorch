@@ -1,5 +1,5 @@
 DEVICE: "0" # "0" means GPU 0, "0,1" means GPU 0 and 1, etc.
-EXP_NAME: "realesrnet_x4-df2k_degradation" # Name of the experiment
+EXP_NAME: "realesrnet_x4-df2k_degradation-finetune" # Name of the experiment
 PHASE: "psnr" # psnr, gan
 UPSCALE_FACTOR: 4
 
@@ -64,7 +64,7 @@ TRAIN:
   RESUME_G: ""
 
   # train weights
-  G_WEIGHTS_PATH: ""
+  G_WEIGHTS_PATH: "results/pretrained_models/realesrnet_x4-df2k_degradation.pkl"
 
   # train datasets
   IMAGE_SIZE: 256
@@ -106,6 +106,6 @@ TRAIN:
   VERBOSE: True
 
 EVAL:
-  WEIGHTS_PATH: "results/train/realesrnet_x4-df2k_degradation/weights/g_best_checkpoint.pkl"
+  WEIGHTS_PATH: "results/train/realesrnet_x4-df2k_degradation-finetune/weights/g_best_checkpoint.pkl"
   NIQE_WEIGHTS_PATH: "results/pretrained_models/niqe_model.mat"
   ONLY_TEST_Y_CHANNEL: True

@@ -1,77 +1,75 @@
 # Real_ESRGAN-PyTorch
 
-## Overview
-
-This repository contains an op-for-op PyTorch reimplementation of [Real-ESRGAN: Training Real-World Blind Super-Resolution with Pure Synthetic Data](https://arxiv.org/abs/2107.10833v2).
-
 ## Table of contents
 
 - [Real_ESRGAN-PyTorch](#real_esrgan-pytorch)
-    - [Overview](#overview)
-    - [Table of contents](#table-of-contents)
-    - [Download weights](#download-weights)
-    - [Download datasets](#download-datasets)
-    - [How Test and Train](#how-test-and-train)
-        - [Test](#test)
-        - [Train RealESRNet model](#train-realesrnet-model)
-        - [Resume train RealESRNet model](#resume-train-realesrnet-model)
-        - [Train RealESRGAN model](#train-realesrgan-model)
-        - [Resume train RealESRGAN model](#resume-train-realesrgan-model)
+    - [Introduction](#introduction)
+    - [Getting Started](#getting-started)
+        - [Requirements](#requirements)
+        - [Local Install](#local-install)
+    - [All pretrained model weights](#all-pretrained-model-weights)
+    - [Inference](#inference)
+    - [Inference video](#inference-video)
+    - [Train](#train)
     - [Result](#result)
     - [Contributing](#contributing)
     - [Credit](#credit)
         - [Real-ESRGAN: Training Real-World Blind Super-Resolution with Pure Synthetic Data](#real-esrgan-training-real-world-blind-super-resolution-with-pure-synthetic-data)
 
-## Download weights
+## Introduction
 
-- [Google Driver](https://drive.google.com/drive/folders/17ju2HN7Y6pyPK2CC_AqnAfTOe9_3hCQ8?usp=sharing)
-- [Baidu Driver](https://pan.baidu.com/s/1yNs4rqIb004-NKEdKBJtYg?pwd=llot)
+This repository contains an op-for-op PyTorch reimplementation of [Real-ESRGAN: Training Real-World Blind Super-Resolution with Pure Synthetic Data](https://arxiv.org/abs/2107.10833v2).
 
-## Download datasets
+## Getting Started
 
-Contains DIV2K, DIV8K, Flickr2K, OST, T91, Set5, Set14, BSDS100 and BSDS200, etc.
+### Requirements
 
-- [Google Driver](https://drive.google.com/drive/folders/1A6lzGeQrFMxPqJehK9s37ce-tPDj20mD?usp=sharing)
-- [Baidu Driver](https://pan.baidu.com/s/1o-8Ty_7q6DiS3ykLU09IVg?pwd=llot)
+- Python 3.10+
+- PyTorch 2.0.0+
+- CUDA 12.1+
+- Ubuntu 22.04+
 
-## How Test and Train
+### Local Install
 
-Both training and testing only need to modify the `config.py` file. 
+```bash
+git clone https://github.com/Lornatang/Real_ESRGAN-PyTorch.git
+cd Real_ESRGAN-PyTorch
+pip install -r requirements.txt
+pip install -e . -v
+```
 
-### Test
+## All pretrained model weights
 
-- line 77: `upscale_factor` change to `4`.
-- line 79: `mode` change to `test`.
-- line 159: `model_path` change to `results/pretrained_models/RealESRGAN_x4-DFO2K-678bf481.pth.tar`.
+- [realesrnet_x4](https://github.com/Lornatang/Real_ESRGAN-PyTorch/releases/download/0.1.0/realesrnet_x4-df2k_degradation.pkl)
+- [realesrgan_x4](https://github.com/Lornatang/Real_ESRGAN-PyTorch/releases/download/0.1.0/realesrgan_x4-df2k_degradation.pkl)
+- [discriminator_for_unet_x4](https://github.com/Lornatang/Real_ESRGAN-PyTorch/releases/download/0.1.0/discriminator_for_unet_x4-df2k_degradation.pkl)
 
-### Train RealESRNet model
+## Inference
 
-- line 77: `upscale_factor` change to `4`.
-- line 79: `mode` change to `train_realesrnet`.
-- line 81: `exp_name` change to `RealESRNet_baseline`.
+```shell
+# Download pretrained model weights to `./results/pretrained_models`
+wget https://github.com/Lornatang/Real_ESRGAN-PyTorch/releases/download/0.1.0/realesrgan_x4-df2k_degradation.pkl -O results/pretrained_models/realesrgan_x4-df2k_degradation.pkl
+python demo/inference_images.py configs/inference.yaml
+# You will see
+# Model summary: Params: 16.70 M, GFLOPs: 73.43 B
+# SR image save to `demo/output/00003.jpg`
+# SR image save to `demo/output/0030.jpg`
+# SR image save to `demo/output/0014.jpg`
+```
 
-### Resume train RealESRNet model
+|                       Bicubic                        |                         Real_ESRGAN                          |
+|:----------------------------------------------------:|:------------------------------------------------------------:|
+| ![00003_bicubic_x4.jpg](figure/00003_bicubic_x4.jpg) | ![00003_real_esrgan_x4.jpg](figure/00003_real_esrgan_x4.jpg) |
+| ![0014_bicubic_x4.jpg](figure/0014_bicubic_x4.jpg))  |  ![0014_real_esrgan_x4.jpg](figure/0014_real_esrgan_x4.jpg)  |
+|  ![0030_bicubic_x4.jpg](figure/0030_bicubic_x4.jpg)  |  ![0030_real_esrgan_x4.jpg](figure/0030_real_esrgan_x4.jpg)  |
 
-- line 77: `upscale_factor` change to `4`.
-- line 79: `mode` change to `train_realesrnet`.
-- line 81: `exp_name` change to `RealESRNet_baseline`.
-- line 95: `resume` change to `samples/RealESRNet_baseline/g_epoch_xxx.pth.tar`.
+## Inference video
 
-### Train RealESRGAN model
+TODO
 
-- line 77: `upscale_factor` change to `4`.
-- line 79: `mode` change to `train_realesrgan`.
-- line 81: `exp_name` change to `RealESRGAN_baseline`.
-- line 124: `resume` change to `results/RealESRNet_baseline/g_last.pth.tar`.
+## Train
 
-### Resume train RealESRGAN model
-
-- line 77: `upscale_factor` change to `4`.
-- line 79: `mode` change to `train_realesrgan`.
-- line 81: `exp_name` change to `RealESRGAN_baseline`.
-- line 124: `resume` change to `results/RealESRNet_baseline/g_last.pth.tar`.
-- line 125: `resume_d` change to `samples/RealESRGAN_baseline/g_epoch_xxx.pth.tar`.
-- line 126: `resume_g` change to `samples/RealESRGAN_baseline/g_epoch_xxx.pth.tar`.
+See [training.md](docs/training.md)
 
 ### Result
 
@@ -83,26 +81,6 @@ In the following table, the value in `()` indicates the result of the project, a
 |:----------:|:-----:|:-----------:|:------------:|
 | RealESRNet |   4   | -(**9.80**) | -(**7.08**)  |
 | RealESRGAN |   4   | -(**7.09**) | -(**4.74**)  |
-
-```bash
-# Download `RealESRGAN_x4-DFO2K-678bf481.pth.tar` weights to `./results/pretrained_models`
-# More detail see `README.md<Download weights>`
-python ./inference.py --inputs_path ./figure/tree_lr.png --output_path ./figure/tree_sr.png --weights_path ./results/pretrained_models/RealESRGAN_x4-DFO2K-678bf481.pth.tar`
-```
-
-Input: 
-
-<span align="center"><img width="2048" height="1024" src="figure/tree_lr.png"/></span>
-
-Output: 
-
-<span align="center"><img width="2048" height="1024" src="figure/tree_sr.png"/></span>
-
-```text
-Build Real_ESRGAN model successfully.
-Load Real_ESRGAN model weights `./results/pretrained_models/RealESRGAN_x4-DFO2K-678bf481.pth.tar` successfully.
-SR image save to `./figure/tree_sr.png`
-```
 
 ### Contributing
 
