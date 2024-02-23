@@ -208,7 +208,7 @@ class Trainer:
         self.batch_time: AverageMeter = AverageMeter("Time", ":6.3f")
         self.data_time: AverageMeter = AverageMeter("Data", ":6.3f")
         self.pixel_losses: AverageMeter = AverageMeter("Pixel loss", ":.4e")
-        self.feature_losses: AverageMeter = AverageMeter("Content loss", ":.4e")
+        self.feature_losses: AverageMeter = AverageMeter("Feature loss", ":.4e")
         self.adv_losses: AverageMeter = AverageMeter("Adv loss", ":.4e")
         self.d_gt_probes = AverageMeter("D(GT)", ":6.3f")
         self.d_sr_probes = AverageMeter("D(SR)", ":6.3f")
@@ -639,7 +639,7 @@ class Trainer:
         if self.phase == "gan":
             self.d_model.train()
             self.d_optimizer.zero_grad()
-            self.feature_losses = AverageMeter("Content loss", ":.4e")
+            self.feature_losses = AverageMeter("Feature loss", ":.4e")
             self.adv_losses = AverageMeter("Adv loss", ":.4e")
             self.d_gt_probes = AverageMeter("D(GT)", ":6.3f")
             self.d_sr_probes = AverageMeter("D(SR)", ":6.3f")
