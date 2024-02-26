@@ -73,9 +73,12 @@ class EDSRNet(nn.Module):
         initialize_weights(self.modules())
 
     def forward(self, x: Tensor) -> Tensor:
-        out = x.sub_(self.mean).mul_(self.image_range)
+        self.mean = self.mean.type_as(x)
+        self.mean = self.mean.to(x.device)
 
-        conv_1 = self.conv_1(out)
+        x = x.sub_(self.mean).mul_(self.image_range)
+
+        conv_1 = self.conv_1(x)
         out = self.trunk(conv_1)
         out = self.conv_2(out)
         out = torch.add(out, conv_1)
