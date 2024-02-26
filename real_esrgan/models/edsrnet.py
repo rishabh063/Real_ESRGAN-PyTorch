@@ -12,6 +12,7 @@
 # limitations under the License.
 # ==============================================================================
 import math
+
 import torch
 from torch import Tensor, nn
 
@@ -60,10 +61,10 @@ class EDSRNet(nn.Module):
 
         # Up-sampling layers
         up_sampling = []
-        if upscale_factor == 2 or upscale_factor == 4 or upscale_factor == 8:
+        if (upscale_factor & (upscale_factor - 1)) == 0:  # 2,4,8
             for _ in range(int(math.log(upscale_factor, 2))):
                 up_sampling.append(PixShuffleUpsampleBlock(64, 2))
-        elif upscale_factor == 3:
+        else:  # 3
             up_sampling.append(PixShuffleUpsampleBlock(64, 3))
         self.up_sampling = nn.Sequential(*up_sampling)
 
@@ -79,13 +80,13 @@ class EDSRNet(nn.Module):
         x = x.sub_(self.mean).mul_(self.image_range)
 
         conv_1 = self.conv_1(x)
-        out = self.trunk(conv_1)
-        out = self.conv_2(out)
-        out = torch.add(out, conv_1)
-        out = self.up_sampling(out)
-        out = self.conv_3(out)
-        out = out.div_(self.image_range).add_(self.mean)
-        return torch.clamp_(out, 0.0, 1.0)
+        x = self.trunk(conv_1)
+        x = self.conv_2(x)
+        x = torch.add(x, conv_1)
+        x = self.up_sampling(x)
+        x = self.conv_3(x)
+        x = x.div_(self.image_range).add_(self.mean)
+        return torch.clamp_(x, 0.0, 1.0)
 
 
 def edsrnet_x2(upscale_factor=2, **kwargs) -> EDSRNet:

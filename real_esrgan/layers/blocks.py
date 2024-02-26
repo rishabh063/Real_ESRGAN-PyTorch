@@ -152,7 +152,7 @@ class ResidualFeatureDistillationBlock(nn.Module):
         self.conv_2_distilled = nn.Conv2d(self.remaining_channels, self.distilled_channels, 1, stride=1, padding=0)
         self.conv_2_remaining = nn.Conv2d(self.remaining_channels, self.remaining_channels, 3, stride=1, padding=1)
         self.conv_3_distilled = nn.Conv2d(self.remaining_channels, self.distilled_channels, 1, stride=1, padding=0)
-        self.conv_3_remaining = nn.Conv2d(self.remaining_channels, self.remaining_channels, 3, padding=1)
+        self.conv_3_remaining = nn.Conv2d(self.remaining_channels, self.remaining_channels, 3, stride=1, padding=1)
         self.conv_4 = nn.Conv2d(self.remaining_channels, self.distilled_channels, 3, stride=1, padding=1)
         self.conv_5 = nn.Conv2d(self.distilled_channels * 4, channels, 1, stride=1, padding=0)
 

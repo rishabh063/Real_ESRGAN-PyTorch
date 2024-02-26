@@ -12,14 +12,13 @@
 # limitations under the License.
 # ==============================================================================
 import torch
+from reality_sr.layers.blocks import ResidualFeatureDistillationBlock
+from reality_sr.utils.ops import initialize_weights
 from torch import Tensor, nn
-
-from real_esrgan.layers.blocks import ResidualFeatureDistillationBlock
-from real_esrgan.utils.ops import initialize_weights
 
 __all__ = [
     "ResidualFeatureDistillationNet",
-    "rfdnet_x4",
+    "rfdnet_x2", "rfdnet_x3", "rfdnet_x4", "rfdnet_x8",
 ]
 
 
@@ -30,7 +29,8 @@ class ResidualFeatureDistillationNet(nn.Module):
 
     def __init__(self, in_channels: int = 3, out_channels: int = 3, channels: int = 50, upscale_factor: int = 4) -> None:
         super(ResidualFeatureDistillationNet, self).__init__()
-        assert upscale_factor in [4], f"upscale_factor must be in [4], but got {upscale_factor}"
+        assert upscale_factor in (2, 3, 4, 8), "Upscale factor should be 2, 3, 4 or 8."
+        self.upscale_factor = upscale_factor
 
         self.conv_1 = nn.Conv2d(in_channels, channels, 3, stride=1, padding=1)
 
@@ -40,7 +40,7 @@ class ResidualFeatureDistillationNet(nn.Module):
         self.rfdb_4 = ResidualFeatureDistillationBlock(channels)
 
         self.conv_2 = nn.Sequential(
-            nn.Conv2d(channels * 4, channels, 1, stride=1, padding=0),
+            nn.Conv2d(int(channels * 4), channels, 1, stride=1, padding=0),
             nn.LeakyReLU(0.05, True),
         )
 
@@ -61,15 +61,27 @@ class ResidualFeatureDistillationNet(nn.Module):
         rfdb_3 = self.rfdb_3(rfdb_2)
         rfdb_4 = self.rfdb_4(rfdb_3)
 
-        out = torch.cat([rfdb_1, rfdb_2, rfdb_3, rfdb_4], 1)
-        out = self.conv_2(out)
-        out = self.conv_3(out)
+        x = torch.cat([rfdb_1, rfdb_2, rfdb_3, rfdb_4], 1)
+        x = self.conv_2(x)
+        x = self.conv_3(x)
 
-        out = torch.add(out, conv_1)
-        out = self.up_sampler(out)
+        x = torch.add(x, conv_1)
+        x = self.up_sampler(x)
 
-        return torch.clamp_(out, 0, 1)
+        return torch.clamp_(x, 0, 1)
+
+
+def rfdnet_x2(upscale_factor=2, **kwargs) -> ResidualFeatureDistillationNet:
+    return ResidualFeatureDistillationNet(upscale_factor=upscale_factor, **kwargs)
+
+
+def rfdnet_x3(upscale_factor=3, **kwargs) -> ResidualFeatureDistillationNet:
+    return ResidualFeatureDistillationNet(upscale_factor=upscale_factor, **kwargs)
 
 
 def rfdnet_x4(upscale_factor=4, **kwargs) -> ResidualFeatureDistillationNet:
+    return ResidualFeatureDistillationNet(upscale_factor=upscale_factor, **kwargs)
+
+
+def rfdnet_x8(upscale_factor=8, **kwargs) -> ResidualFeatureDistillationNet:
     return ResidualFeatureDistillationNet(upscale_factor=upscale_factor, **kwargs)
