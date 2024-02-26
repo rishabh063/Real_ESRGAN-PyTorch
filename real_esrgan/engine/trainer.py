@@ -108,7 +108,6 @@ class Trainer:
 
         # ========== Init all config ==========
         # datasets
-        self.dataset_mode = self.dataset_config_dict.MODE
         self.dataset_train_gt_images_dir = self.dataset_config_dict.TRAIN_GT_IMAGES_DIR
         self.dataset_train_lr_images_dir = self.dataset_config_dict.get("TRAIN_LR_IMAGES_DIR")
         self.dataset_val_gt_images_dir = self.dataset_config_dict.VAL_GT_IMAGES_DIR
@@ -157,12 +156,11 @@ class Trainer:
         # datasets
         self.train_dataloader, self.val_dataloader = self.get_dataloader()
         self.num_train_batch = len(self.train_dataloader)
-        if self.dataset_mode == "degradation":
-            # Define JPEG compression method and USM sharpening method
-            jpeg_operation = DiffJPEG(False)
-            usm_sharpener = USMSharp()
-            self.jpeg_operation = jpeg_operation.to(device=self.device)
-            self.usm_sharpener = usm_sharpener.to(device=self.device)
+        # Define JPEG compression method and USM sharpening method
+        jpeg_operation = DiffJPEG(False)
+        usm_sharpener = USMSharp()
+        self.jpeg_operation = jpeg_operation.to(device=self.device)
+        self.usm_sharpener = usm_sharpener.to(device=self.device)
 
         # For the PSNR phase
         self.g_model = self.get_g_model()
@@ -238,13 +236,7 @@ class Trainer:
                 LOGGER.info(f"D model summary: {d_model_info}")
 
     def get_dataloader(self):
-        if self.dataset_mode not in ["degradation", "paired"]:
-            raise NotImplementedError(f"Dataset mode {self.dataset_mode} is not implemented. Only support `degradation` and `paired`.")
-
-        if self.dataset_mode == "degradation":
-            train_datasets = DegeneratedImageDataset(self.dataset_train_gt_images_dir, self.degradation_model_parameters_dict)
-        else:
-            train_datasets = PairedImageDataset(self.dataset_train_gt_images_dir, self.dataset_train_lr_images_dir)
+        train_datasets = DegeneratedImageDataset(self.dataset_train_gt_images_dir, self.degradation_model_parameters_dict)
         val_datasets = PairedImageDataset(self.dataset_val_gt_images_dir, self.dataset_val_lr_images_dir)
         # generate dataset iterator
         train_dataloader = torch.utils.data.DataLoader(train_datasets,
