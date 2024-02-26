@@ -11,9 +11,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""
-Crop all images in a folder to sub-images of a specified size, with equal width and height
-"""
 import argparse
 from abc import ABC
 from pathlib import Path
