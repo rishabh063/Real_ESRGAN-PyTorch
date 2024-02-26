@@ -88,9 +88,9 @@ TRAIN:
         BETAS: [ 0.9, 0.99 ]
 
       LR_SCHEDULER:
-        TYPE: "multistep_lr"
-        MILESTONES: [ 5, 10, 20, 30 ]  # 0.125, 0.250, 0.5, 0.75
-        GAMMA: 0.5
+        TYPE: "constant"
+        FACTOR: 1.0
+        TOTAL_ITERS: 36
     D:
       OPTIM:
         TYPE: "adam"
@@ -98,9 +98,9 @@ TRAIN:
         BETAS: [ 0.9, 0.99 ]
 
       LR_SCHEDULER:
-        TYPE: "multistep_lr"
-        MILESTONES: [ 5, 10, 20, 30 ]  # 0.125, 0.250, 0.5, 0.75
-        GAMMA: 0.5
+        TYPE: "constant"
+        FACTOR: 1.0
+        TOTAL_ITERS: 36
 
   # loss config
   LOSS:

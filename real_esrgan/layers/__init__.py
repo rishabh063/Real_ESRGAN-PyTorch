@@ -13,4 +13,3 @@
 # ==============================================================================
 from .blocks import *
 from .ema import *
-from .upsample import *

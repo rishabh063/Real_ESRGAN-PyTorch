@@ -13,72 +13,10 @@
 # ==============================================================================
 import torch
 from torch import Tensor, nn
-from torch.nn import functional as F_torch
 
 __all__ = [
-    "EnhancedSpatialAttention", "ResidualConvBlock", "ResidualDenseBlock", "ResidualResidualDenseBlock", "ResidualFeatureDistillationBlock",
+    "ResidualDenseBlock", "ResidualResidualDenseBlock", "ResidualFeatureDistillationBlock",
 ]
-
-
-class EnhancedSpatialAttention(nn.Module):
-    r"""Residual feature distillation block.
-    `Residual Feature Aggregation Network for Image Super-Resolution` https://openaccess.thecvf.com/content_CVPR_2020/papers/Liu_Residual_Feature_Aggregation_Network_foremaining_Image_Super-Resolution_CVPR_2020_paper.pdf paper.
-    """
-
-    def __init__(self, channels: int) -> None:
-        super(EnhancedSpatialAttention, self).__init__()
-        hidden_channels = channels // 4
-        self.conv_1 = nn.Conv2d(channels, hidden_channels, 1, stride=1, padding=0)
-        self.cross_conv = nn.Conv2d(hidden_channels, hidden_channels, 1, stride=1, padding=0)
-        self.conv_max = nn.Conv2d(hidden_channels, hidden_channels, 3, stride=1, padding=1)
-        self.conv_2 = nn.Conv2d(hidden_channels, hidden_channels, 3, stride=2, padding=0)
-        self.conv_3 = nn.Conv2d(hidden_channels, hidden_channels, 3, stride=1, padding=1)
-        self.conv_3_1 = nn.Conv2d(hidden_channels, hidden_channels, 3, stride=1, padding=1)
-        self.conv_4 = nn.Conv2d(hidden_channels, channels, 1, stride=1, padding=0)
-
-        self.max_pool = nn.MaxPool2d(7, 3)
-        self.sigmoid = nn.Sigmoid()
-        self.relu = nn.ReLU(True)
-
-    def forward(self, x: Tensor) -> Tensor:
-        conv_1 = self.conv_1(x)
-        cross_conv = self.cross_conv(conv_1)
-        conv_2 = self.conv_2(conv_1)
-
-        v_max = self.max_pool(conv_2)
-        v_range = self.conv_max(v_max)
-        v_range = self.relu(v_range)
-
-        conv_3 = self.conv_3(v_range)
-        conv_3 = self.relu(conv_3)
-        conv_3_1 = self.conv_3_1(conv_3)
-        conv_3_1 = F_torch.interpolate(conv_3_1, (x.size(2), x.size(3)), mode="bilinear", align_corners=False)
-
-        conv_4 = self.conv_4(conv_3_1 + cross_conv)
-        conv_4 = self.sigmoid(conv_4)
-
-        return x * conv_4
-
-
-class ResidualConvBlock(nn.Module):
-    r"""Residual convolutional block.
-    `Enhanced Deep Residual Networks for Single Image Super-Resolution` https://arxiv.org/abs/1707.02921 paper.
-    
-    Attributes:
-        rcb (nn.Sequential): The residual convolutional block.
-    """
-
-    def __init__(self, channels: int) -> None:
-        super(ResidualConvBlock, self).__init__()
-        self.rcb = nn.Sequential(
-            nn.Conv2d(channels, channels, 3, stride=1, padding=1),
-            nn.ReLU(True),
-            nn.Conv2d(channels, channels, 3, stride=1, padding=1),
-        )
-
-    def forward(self, x: Tensor) -> Tensor:
-        out = self.rcb(x)
-        return torch.add(out, x)
 
 
 class ResidualDenseBlock(nn.Module):

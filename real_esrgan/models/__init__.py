@@ -12,6 +12,4 @@
 # limitations under the License.
 # ==============================================================================
 from .discriminator_for_unet import *
-from .edsrnet import *
-from .rfdnet import *
 from .rrdbnet import *

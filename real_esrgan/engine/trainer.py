@@ -27,10 +27,8 @@ from real_esrgan.data.degradations import degradation_process
 from real_esrgan.data.paired_image_dataset import PairedImageDataset
 from real_esrgan.data.transforms import random_crop_torch, random_rotate_torch, random_vertically_flip_torch, random_horizontally_flip_torch
 from real_esrgan.layers.ema import ModelEMA
-from real_esrgan.models.discriminator_for_unet import discriminator_for_unet
-from real_esrgan.models.edsrnet import edsrnet_x2, edsrnet_x4
+from real_esrgan.models import *
 from real_esrgan.models.losses import FeatureLoss
-from real_esrgan.models.rrdbnet import rrdbnet_x4
 from real_esrgan.utils.checkpoint import load_state_dict, save_checkpoint, strip_optimizer
 from real_esrgan.utils.diffjepg import DiffJPEG
 from real_esrgan.utils.envs import select_device, set_seed_everything
@@ -273,16 +271,6 @@ class Trainer:
                                  channels=self.model_config_dict.G.get("CHANNELS", 64),
                                  growth_channels=self.model_config_dict.G.get("GROWTH_CHANNELS", 32),
                                  num_rrdb=self.model_config_dict.G.get("NUM_RRDB", 23))
-        elif model_g_type == "edsrnet_x2":
-            g_model = edsrnet_x2(in_channels=self.model_config_dict.G.get("IN_CHANNELS", 3),
-                                 out_channels=self.model_config_dict.G.get("OUT_CHANNELS", 3),
-                                 channels=self.model_config_dict.G.get("CHANNELS", 64),
-                                 num_rcb=self.model_config_dict.G.get("NUM_RCB", 16))
-        elif model_g_type == "edsrnet_x4":
-            g_model = edsrnet_x4(in_channels=self.model_config_dict.G.get("IN_CHANNELS", 3),
-                                 out_channels=self.model_config_dict.G.get("OUT_CHANNELS", 3),
-                                 channels=self.model_config_dict.G.get("CHANNELS", 64),
-                                 num_rcb=self.model_config_dict.G.get("NUM_RCB", 16))
         else:
             raise NotImplementedError(f"Model type `{model_g_type}` is not implemented.")
         g_model = g_model.to(self.device)
@@ -500,7 +488,7 @@ class Trainer:
             # Record training log information
             if i % 100 == 0 or i == self.num_train_batch - 1:
                 # Writer Loss to file
-                self.tblogger.add_scalar("Train/Loss", loss.item(), i + self.current_epoch * self.train_batch_size + 1)
+                self.tblogger.add_scalar("Train/Pixel_Loss", loss.item(), i + self.current_epoch * self.train_batch_size + 1)
                 self.progress.display(i + 1)
 
     def train_gan(self):
