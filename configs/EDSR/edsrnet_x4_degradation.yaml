@@ -6,7 +6,7 @@ UPSCALE_FACTOR: 4
 DEGRADATION_MODEL_PARAMETERS_DICT:
   SINC_KERNEL_SIZE: 21
   GAUSSIAN_KERNEL_RANGE: [ 7, 9, 11, 13, 15, 17, 19, 21 ]
-  GAUSSIAN_KERNEL_TYPE: [ "ISOTROPIC", "ANISOTROPIC","GENERALIZED_ISOTROPIC", "GENERALIZED_ANISOTROPIC","PLATEAU_ISOTROPIC", "PLATEAU_ANISOTROPIC" ]
+  GAUSSIAN_KERNEL_TYPE: [ "isotropic", "anisotropic","generalized_isotropic", "generalized_anisotropic","plateau_isotropic", "plateau_anisotropic" ]
   # first-order degradation parameters
   GAUSSIAN_KERNEL_PROBABILITY1: [ 0.45, 0.25, 0.12, 0.03, 0.12, 0.03 ]
   SINC_KERNEL_PROBABILITY1: 0.1
@@ -45,7 +45,7 @@ DEGRADATION_PROCESS_PARAMETERS_DICT:
 
 DATASET:
   MODE: "degradation" # degradation, paired
-  TRAIN_GT_IMAGES_DIR: "data/DF2K/DF2K_sub_image_384x384"  # 178574 images
+  TRAIN_GT_IMAGES_DIR: "data/DF2K/DF2K_multiscale_sub_image_384x384"  # 178574 images
   TRAIN_LR_IMAGES_DIR: ""
 
   VAL_GT_IMAGES_DIR: "data/Set5/X4/GT"

@@ -161,7 +161,7 @@ class Trainer:
         self.num_train_batch = len(self.train_dataloader)
         if self.dataset_mode == "degradation":
             # Define JPEG compression method and USM sharpening method
-            jpeg_operation = DiffJPEG()
+            jpeg_operation = DiffJPEG(False)
             usm_sharpener = USMSharp()
             self.jpeg_operation = jpeg_operation.to(device=self.device)
             self.usm_sharpener = usm_sharpener.to(device=self.device)
