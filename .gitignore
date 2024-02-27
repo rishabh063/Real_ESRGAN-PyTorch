@@ -7,13 +7,9 @@
 *.bmp
 *.pkl
 
-data/DIV2K_train_HR
-data/Flickr2K
-data/OST
-data/DF2K
-data/Set5
-data/Set14
-data/custom
+datasets/DF2K
+datasets/Set5
+datasets/custom
 
 demo/data
 demo/output
