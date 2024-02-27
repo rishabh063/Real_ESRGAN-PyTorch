@@ -5,6 +5,8 @@
 *.jpeg
 *.png
 *.bmp
+*.avi
+*.mp4
 *.pkl
 
 datasets/DF2K

@@ -1,5 +1,4 @@
 DEVICE: "0"
-WEIGHTS_PATH: "results/pretrained_models/realesrgan_x4-df2k_degradation.pkl"
-HALF: True
+WEIGHTS_PATH: "results/train/realesrnet_x4-df2k_degradation/weights/g_last_checkpoint.pkl"
 INPUTS: "demo/data"
-OUTPUT: "demo/output"
+OUTPUT: "demo/output/realesrnet_x4-df2k_degradation"
