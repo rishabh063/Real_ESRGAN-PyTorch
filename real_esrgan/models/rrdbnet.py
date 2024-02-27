@@ -15,8 +15,8 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F_torch
 
-from reality_sr.layers.blocks import ResidualResidualDenseBlock
-from reality_sr.utils.ops import initialize_weights
+from real_esrgan.layers.blocks import ResidualResidualDenseBlock
+from real_esrgan.utils.ops import initialize_weights
 
 __all__ = [
     "RRDBNet",
