@@ -557,7 +557,7 @@ class Trainer:
             self.d_model.zero_grad(set_to_none=True)
 
             # Calculate the classification score of the discriminator model for real samples
-            with amp.autocast():
+            with amp.autocast(enabled=self.device.type != "cpu"):
                 gt_output = self.d_model(gt)
                 d_loss_gt = self.adv_criterion(gt_output, real_label)
             # Call the gradient scaling function in the mixed precision API to
@@ -565,7 +565,7 @@ class Trainer:
             self.scaler.scale(d_loss_gt).backward()
 
             # Calculate the classification score of the discriminator model for fake samples
-            with amp.autocast():
+            with amp.autocast(enabled=self.device.type != "cpu"):
                 sr_output = self.d_model(sr.detach().clone())
                 d_loss_sr = self.adv_criterion(sr_output, fake_label)
                 # Calculate the total discriminator loss value
@@ -584,11 +584,12 @@ class Trainer:
             d_sr_prob = torch.sigmoid_(torch.mean(sr_output.detach()))
 
             # Statistical accuracy and loss value for terminal data output
-            self.pixel_losses.update(pixel_loss.item(), lr.size(0))
-            self.feature_losses.update(feature_loss.item(), lr.size(0))
-            self.adv_losses.update(adv_loss.item(), lr.size(0))
-            self.d_gt_probes.update(d_gt_prob.item(), lr.size(0))
-            self.d_sr_probes.update(d_sr_prob.item(), lr.size(0))
+            batch_size = lr.size(0)
+            self.pixel_losses.update(pixel_loss.item(), batch_size)
+            self.feature_losses.update(feature_loss.item(), batch_size)
+            self.adv_losses.update(adv_loss.item(), batch_size)
+            self.d_gt_probes.update(d_gt_prob.item(), batch_size)
+            self.d_sr_probes.update(d_sr_prob.item(), batch_size)
 
             # Calculate the time it takes to fully train a batch of data
             self.batch_time.update(time.time() - end)
@@ -614,7 +615,6 @@ class Trainer:
         self.g_model.train()
         # if self.rank != -1:
         #     self.train_dataloader.sampler.set_epoch(self.current_epoch)
-        self.g_optimizer.zero_grad()
 
         # The information printed by the progress bar
         self.batch_time = AverageMeter("Time", ":6.3f")
@@ -626,7 +626,6 @@ class Trainer:
 
         if self.phase == "gan":
             self.d_model.train()
-            self.d_optimizer.zero_grad()
             self.feature_losses = AverageMeter("Feature loss", ":.4e")
             self.adv_losses = AverageMeter("Adv loss", ":.4e")
             self.d_gt_probes = AverageMeter("D(GT)", ":6.3f")
