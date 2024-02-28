@@ -35,13 +35,13 @@ class FeatureLoss(nn.Module):
 
     def __init__(
             self,
-            arch_type: str,
+            arch_name: str,
             layer_name_list: list,
             normalize: bool,
     ) -> None:
         super(FeatureLoss, self).__init__()
         self.vgg_feature_extractor = VGGFeatureExtractor(
-            arch_type=arch_type,
+            arch_name=arch_name,
             layer_name_list=layer_name_list,
             normalize=normalize)
 

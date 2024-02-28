@@ -56,24 +56,24 @@ vgg_layer_names = {
 class VGGFeatureExtractor(nn.Module):
     def __init__(
             self,
-            arch_type: str = "vgg19",
+            arch_name: str = "vgg19",
             layer_name_list: list = None,
             normalize: bool = True,
     ) -> None:
         super(VGGFeatureExtractor, self).__init__()
-        assert arch_type in vgg_layer_names.keys(), f"VGG model only support {vgg_layer_names.keys()}"
+        assert arch_name in vgg_layer_names.keys(), f"VGG model only support {vgg_layer_names.keys()}"
 
         if layer_name_list is None:
             layer_name_list = ["conv1_2", "conv2_2", "conv3_4", "conv4_4", "conv5_4"]
         self.layer_name_list = layer_name_list
         self.normalize = normalize
 
-        self.layer_names = vgg_layer_names[arch_type]
-        if arch_type == "vgg11":
+        self.layer_names = vgg_layer_names[arch_name]
+        if arch_name == "vgg11":
             vgg_model = models.vgg11(weights=models.VGG11_Weights.IMAGENET1K_V1)
-        elif arch_type == "vgg13":
+        elif arch_name == "vgg13":
             vgg_model = models.vgg13(weights=models.VGG13_Weights.IMAGENET1K_V1)
-        elif arch_type == "vgg16":
+        elif arch_name == "vgg16":
             vgg_model = models.vgg16(weights=models.VGG16_Weights.IMAGENET1K_V1)
         else:
             vgg_model = models.vgg19(weights=models.VGG19_Weights.IMAGENET1K_V1)
