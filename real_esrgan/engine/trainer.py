@@ -388,14 +388,20 @@ class Trainer:
 
     def define_loss(self, loss_type: str) -> Any:
         if loss_type not in ["l1_loss", "l2_loss", "feature_loss", "bce_with_logits_loss"]:
-            raise NotImplementedError(f"Loss type {loss_type} is not implemented. Only support [`l1_loss`, `l2_loss`, `feature_loss`, `bce_with_logits_loss`].")
+            raise NotImplementedError(
+                f"Loss type {loss_type} is not implemented. Only support [`l1_loss`, `l2_loss`, `feature_loss`, `bce_with_logits_loss`].")
 
         if loss_type == "l1_loss":
             criterion = nn.L1Loss()
         elif loss_type == "l2_loss":
             criterion = nn.MSELoss()
         elif loss_type == "feature_loss":
-            criterion = FeatureLoss()
+            criterion = FeatureLoss(
+                arch_type=self.feature_loss.get("TYPE", "vgg19"),
+                layer_name_list=OmegaConf.to_container(
+                    self.feature_loss.get("LAYER_NAME_LIST", ["conv1_2", "conv2_2", "conv3_4", "conv4_4", "conv5_4"])),
+                normalize=self.feature_loss.get("NORMALIZE", True),
+            )
         else:
             criterion = nn.BCEWithLogitsLoss()
 
