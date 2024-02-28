@@ -12,8 +12,6 @@
 # limitations under the License.
 # ==============================================================================
 from .discriminator_for_unet import *
-from .edsrnet import *
 from .losses import *
-from .rfdnet import *
 from .rrdbnet import *
 from .vgg_feature_extraction import *
