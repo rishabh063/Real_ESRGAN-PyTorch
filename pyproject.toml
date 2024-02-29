@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "real_esrgan"
-version = "0.1.0"
+version = "0.2.0"
 description = "PyTorch implements `Real-ESRGAN: Training Real-World Blind Super-Resolution with Pure Synthetic Data` paper."
 readme = "README.md"
 requires-python = ">= 3.10"
