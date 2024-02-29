@@ -65,16 +65,16 @@ def init_train_env(config_dict: DictConfig) -> [DictConfig, torch.device]:
     # Define the name of the configuration file
     save_config_name = "config.yaml"
 
-    resume_g = config_dict.get("RESUME_G", "")
-    resume_d = config_dict.get("RESUME_D", "")
+    resume_g = config_dict.TRAIN.get("RESUME_G", "")
+    resume_d = config_dict.TRAIN.get("RESUME_D", "")
 
     # Handle the resume training case
     if resume_g:
-        checkpoint_path = _resume(config_dict, resume_g)
-        config_dict.TRAIN.RESUME_G = checkpoint_path
+        config_dict = _resume(config_dict, resume_g)
+        config_dict.TRAIN.RESUME_G = resume_g
     elif resume_d:
-        checkpoint_path = _resume(config_dict, resume_d)
-        config_dict.TRAIN.RESUME_D = checkpoint_path
+        config_dict = _resume(config_dict, resume_d)
+        config_dict.TRAIN.RESUME_D = resume_d
     else:
         save_dir = config_dict.TRAIN.OUTPUT_DIR / Path(config_dict.EXP_NAME)
         config_dict.TRAIN.SAVE_DIR = str(increment_name(save_dir))
@@ -257,13 +257,7 @@ class Trainer:
 
     def get_g_model(self):
         model_g_type = self.model_config_dict.G.TYPE
-        if model_g_type == "rrdbnet_x8":
-            g_model = rrdbnet_x8(in_channels=self.model_config_dict.G.get("IN_CHANNELS", 3),
-                                 out_channels=self.model_config_dict.G.get("OUT_CHANNELS", 3),
-                                 channels=self.model_config_dict.G.get("CHANNELS", 64),
-                                 growth_channels=self.model_config_dict.G.get("GROWTH_CHANNELS", 32),
-                                 num_rrdb=self.model_config_dict.G.get("NUM_RRDB", 23))
-        elif model_g_type == "rrdbnet_x4":
+        if model_g_type == "rrdbnet_x4":
             g_model = rrdbnet_x4(in_channels=self.model_config_dict.G.get("IN_CHANNELS", 3),
                                  out_channels=self.model_config_dict.G.get("OUT_CHANNELS", 3),
                                  channels=self.model_config_dict.G.get("CHANNELS", 64),
@@ -471,11 +465,11 @@ class Trainer:
             sinc_kernel = sic_kernel.to(device=self.device, non_blocking=True)
             loss_pixel_weight = torch.Tensor(self.pixel_loss_weight).to(device=self.device)
 
-            # Initialize the generator gradient
-            self.g_model.zero_grad()
-
             # degradation transforms
             gt_usm, gt, lr = self.degradation_transforms(gt, gaussian_kernel1, gaussian_kernel2, sinc_kernel)
+
+            # Initialize the generator gradient
+            self.g_model.zero_grad()
 
             # Mixed precision training
             with amp.autocast(enabled=self.device.type != "cpu"):
@@ -662,7 +656,11 @@ class Trainer:
         self.eval_model()
 
         # save g ckpt
-        is_best = self.psnr > self.best_psnr or self.ssim > self.best_ssim
+        if self.phase == "gan":
+            is_best = self.niqe < self.best_niqe
+        else:
+            is_best = self.psnr > self.best_psnr or self.ssim > self.best_ssim
+
         ckpt = {
             "model": deepcopy(self.g_model).half(),
             "ema": deepcopy(self.ema.ema).half(),
@@ -679,7 +677,6 @@ class Trainer:
             self.d_lr_scheduler.step()
 
             # save d ckpt
-            is_best = self.niqe < self.best_niqe
             ckpt = {
                 "model": self.d_model,
                 "ema": None,
