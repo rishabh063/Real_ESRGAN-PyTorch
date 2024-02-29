@@ -520,9 +520,6 @@ class Trainer:
             feature_loss_weight = torch.Tensor(self.feature_loss_weight).to(device=self.device)
             adv_loss_weight = torch.Tensor(self.adv_loss_weight).to(device=self.device)
 
-            # Initialize the generator gradient
-            self.g_model.zero_grad(set_to_none=True)
-
             # degradation transforms
             gt_usm, gt, lr = self.degradation_transforms(gt, gaussian_kernel1, gaussian_kernel2, sinc_kernel)
 
@@ -588,6 +585,9 @@ class Trainer:
             self.scaler.step(self.d_optimizer)
             self.scaler.update()
             # Finish training the discriminator model
+
+            # update exponential average model weights
+            self.ema.update(self.g_model)
 
             # Calculate the score of the discriminator on real samples and fake samples,
             # the score of real samples is close to 1, and the score of fake samples is close to 0

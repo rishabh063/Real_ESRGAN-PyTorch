@@ -15,7 +15,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F_torch
 
-from real_esrgan.models.vgg_feature_extraction import VGGFeatureExtractor
+from real_esrgan.models.vgg_feature_extractor import VGGFeatureExtractor
 
 __all__ = [
     "FeatureLoss",
