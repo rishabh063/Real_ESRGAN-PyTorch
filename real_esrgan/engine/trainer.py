@@ -466,7 +466,7 @@ class Trainer:
             gaussian_kernel1 = gaussian_kernel1.to(device=self.device, non_blocking=True)
             gaussian_kernel2 = gaussian_kernel2.to(device=self.device, non_blocking=True)
             sinc_kernel = sic_kernel.to(device=self.device, non_blocking=True)
-            loss_pixel_weight = torch.Tensor(self.pixel_loss_weight).to(device=self.device)
+            loss_pixel_weight = torch.tensor(self.pixel_loss_weight, device=self.device)
 
             # degradation transforms
             gt_usm, gt, lr = self.degradation_transforms(gt, gaussian_kernel1, gaussian_kernel2, sinc_kernel)
@@ -513,9 +513,9 @@ class Trainer:
             gaussian_kernel1 = gaussian_kernel1.to(device=self.device, non_blocking=True)
             gaussian_kernel2 = gaussian_kernel2.to(device=self.device, non_blocking=True)
             sinc_kernel = sic_kernel.to(device=self.device, non_blocking=True)
-            pixel_loss_weight = torch.Tensor(self.pixel_loss_weight).to(device=self.device)
-            feature_loss_weight = torch.Tensor(self.feature_loss_weight).to(device=self.device)
-            adv_loss_weight = torch.Tensor(self.adv_loss_weight).to(device=self.device)
+            pixel_loss_weight = torch.tensor(self.pixel_loss_weight, device=self.device)
+            feature_loss_weight = torch.tensor(self.feature_loss_weight, device=self.device)
+            adv_loss_weight = torch.tensor(self.adv_loss_weight, device=self.device)
 
             # degradation transforms
             gt_usm, gt, lr = self.degradation_transforms(gt, gaussian_kernel1, gaussian_kernel2, sinc_kernel)
@@ -539,7 +539,8 @@ class Trainer:
                 sr = self.g_model(lr)
                 pixel_loss = self.pixel_criterion(sr, gt_usm)
                 feature_loss = self.feature_criterion(sr, gt_usm)
-                adv_loss = self.adv_criterion(self.d_model(sr), real_label)
+                sr_output = self.d_model(sr)
+                adv_loss = self.adv_criterion(sr_output, real_label)
                 pixel_loss = torch.sum(torch.mul(pixel_loss_weight, pixel_loss))
                 feature_loss = torch.sum(torch.mul(feature_loss_weight, feature_loss))
                 adv_loss = torch.sum(torch.mul(adv_loss_weight, adv_loss))
