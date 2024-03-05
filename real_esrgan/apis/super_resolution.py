@@ -18,14 +18,13 @@ import cv2
 import numpy as np
 import torch
 from omegaconf import DictConfig
-from torch import Tensor
-
 from real_esrgan.engine.backend import SuperResolutionBackend
 from real_esrgan.utils.envs import select_device
 from real_esrgan.utils.events import LOGGER
-from real_esrgan.utils.general import get_all_filenames
 from real_esrgan.utils.imgproc import image_to_tensor, tensor_to_image
+from real_esrgan.utils.ops import get_all_filenames
 from real_esrgan.utils.torch_utils import get_model_info
+from torch import Tensor
 
 __all__ = [
     "SuperResolutionInferencer",

@@ -15,7 +15,7 @@ import torch
 from torch import Tensor, nn
 
 from real_esrgan.utils.color import rgb_to_ycbcr_torch
-from real_esrgan.utils.general import check_tensor_shape
+from real_esrgan.utils.ops import check_tensor_shape
 
 __all__ = [
     "mse_torch",

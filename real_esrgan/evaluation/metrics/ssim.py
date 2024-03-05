@@ -19,8 +19,8 @@ from torch import nn, Tensor
 from torch.nn import functional as F_torch
 
 from real_esrgan.utils.color import rgb_to_ycbcr_torch
-from real_esrgan.utils.general import check_tensor_shape
 from real_esrgan.utils.matlab_functions import fspecial_gaussian
+from real_esrgan.utils.ops import check_tensor_shape
 
 __all__ = [
     "ssim_torch",

@@ -12,15 +12,14 @@
 # limitations under the License.
 # ==============================================================================
 import torch
+from real_esrgan.layers.blocks import ResidualResidualDenseBlock
+from real_esrgan.utils.ops import initialize_weights
 from torch import Tensor, nn
 from torch.nn import functional as F_torch
 
-from real_esrgan.layers.blocks import ResidualResidualDenseBlock
-from real_esrgan.utils.ops import initialize_weights
-
 __all__ = [
     "RRDBNet",
-    "rrdbnet_x2", "rrdbnet_x3", "rrdbnet_x4", "rrdbnet_x8",
+    "rrdbnet_x2", "rrdbnet_x3", "rrdbnet_x4",
 ]
 
 
@@ -35,7 +34,7 @@ class RRDBNet(nn.Module):
             upscale_factor: int = 4,
     ) -> None:
         super(RRDBNet, self).__init__()
-        assert upscale_factor in (2, 3, 4, 8), "Upscale factor should be 2, 3, 4 or 8."
+        assert upscale_factor in (2, 3, 4), "Upscale factor should be 2, 3 or 4."
         self.upscale_factor = upscale_factor
 
         # The first layer of convolutional layer
@@ -125,8 +124,4 @@ def rrdbnet_x3(upscale_factor=3, **kwargs) -> RRDBNet:
 
 
 def rrdbnet_x4(upscale_factor=4, **kwargs) -> RRDBNet:
-    return RRDBNet(upscale_factor=upscale_factor, **kwargs)
-
-
-def rrdbnet_x8(upscale_factor=8, **kwargs) -> RRDBNet:
     return RRDBNet(upscale_factor=upscale_factor, **kwargs)

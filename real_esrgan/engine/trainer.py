@@ -33,8 +33,8 @@ from real_esrgan.utils.checkpoint import load_state_dict, save_checkpoint, strip
 from real_esrgan.utils.diffjepg import DiffJPEG
 from real_esrgan.utils.envs import select_device, set_seed_everything
 from real_esrgan.utils.events import LOGGER, AverageMeter, ProgressMeter
-from real_esrgan.utils.general import increment_name
 from real_esrgan.utils.imgproc import USMSharp
+from real_esrgan.utils.ops import increment_name
 from real_esrgan.utils.torch_utils import get_model_info
 from .evaler import Evaler
 
@@ -125,18 +125,17 @@ class Trainer:
         self.train_num_workers = self.train_config_dict.NUM_WORKERS
 
         # train loss
-        self.pixel_loss = self.train_config_dict.LOSS.get("PIXEL", "")
-        self.feature_loss = self.train_config_dict.LOSS.get("FEATURE", "")
-        self.adv_loss = self.train_config_dict.LOSS.get("ADV", "")
-        if self.pixel_loss:
-            self.pixel_loss_type = self.pixel_loss.get("TYPE", "")
-            self.pixel_loss_weight = OmegaConf.to_container(self.pixel_loss.get("WEIGHT", []))
-        if self.feature_loss:
-            self.feature_loss_type = self.feature_loss.get("TYPE", "")
-            self.feature_loss_weight = OmegaConf.to_container(self.feature_loss.get("WEIGHT", []))
-        if self.adv_loss:
-            self.adv_loss_type = self.adv_loss.get("TYPE", "")
-            self.adv_loss_weight = OmegaConf.to_container(self.adv_loss.get("WEIGHT", []))
+        self.pixel_loss_function = self.train_config_dict.LOSS.get("PIXEL")
+        self.feature_loss_function = self.train_config_dict.LOSS.get("FEATURE")
+        self.adv_loss_function = self.train_config_dict.LOSS.get("ADV")
+        if self.pixel_loss_function:
+            self.pixel_loss_type = self.pixel_loss_function.get("TYPE", "")
+            self.pixel_loss_weight = self.pixel_loss_function.get("WEIGHT", 1.0)
+        if self.feature_loss_function:
+            self.feature_loss_type = self.feature_loss_function.get("TYPE", "")
+        if self.adv_loss_function:
+            self.adv_loss_type = self.adv_loss_function.get("TYPE", "")
+            self.adv_loss_weight = self.adv_loss_function.get("WEIGHT", 0.1)
         # train hyper-parameters
         self.epochs = self.train_config_dict.EPOCHS
         # train setup
@@ -179,7 +178,7 @@ class Trainer:
                 LOGGER.warning(f"Loading state_dict from {self.resume_g} failed, train from scratch...")
 
         # losses
-        self.pixel_criterion = self.define_loss(self.pixel_loss_type)
+        self.pixel_criterion = self.get_loss(self.pixel_loss_type)
 
         # For the GAN phase
         if self.phase == "gan":
@@ -193,8 +192,8 @@ class Trainer:
                 else:
                     LOGGER.warning(f"Loading state_dict from {self.resume_d} failed, train from scratch...")
 
-            self.feature_criterion = self.define_loss(self.feature_loss_type)
-            self.adv_criterion = self.define_loss(self.adv_loss_type)
+            self.feature_criterion = self.get_loss(self.feature_loss_type)
+            self.adv_criterion = self.get_loss(self.adv_loss_type)
 
         # tensorboard
         self.tblogger = SummaryWriter(self.save_dir)
@@ -260,8 +259,8 @@ class Trainer:
 
     def get_g_model(self):
         model_g_type = self.model_config_dict.G.TYPE
-        if model_g_type == "rrdbnet_x4":
-            g_model = rrdbnet_x4(in_channels=self.model_config_dict.G.get("IN_CHANNELS", 3),
+        if model_g_type == "rrdbnet_x2":
+            g_model = rrdbnet_x2(in_channels=self.model_config_dict.G.get("IN_CHANNELS", 3),
                                  out_channels=self.model_config_dict.G.get("OUT_CHANNELS", 3),
                                  channels=self.model_config_dict.G.get("CHANNELS", 64),
                                  growth_channels=self.model_config_dict.G.get("GROWTH_CHANNELS", 32),
@@ -272,8 +271,8 @@ class Trainer:
                                  channels=self.model_config_dict.G.get("CHANNELS", 64),
                                  growth_channels=self.model_config_dict.G.get("GROWTH_CHANNELS", 32),
                                  num_rrdb=self.model_config_dict.G.get("NUM_RRDB", 23))
-        elif model_g_type == "rrdbnet_x2":
-            g_model = rrdbnet_x2(in_channels=self.model_config_dict.G.get("IN_CHANNELS", 3),
+        elif model_g_type == "rrdbnet_x4":
+            g_model = rrdbnet_x4(in_channels=self.model_config_dict.G.get("IN_CHANNELS", 3),
                                  out_channels=self.model_config_dict.G.get("OUT_CHANNELS", 3),
                                  channels=self.model_config_dict.G.get("CHANNELS", 64),
                                  growth_channels=self.model_config_dict.G.get("GROWTH_CHANNELS", 32),
@@ -294,9 +293,11 @@ class Trainer:
                                              out_channels=self.model_config_dict.D.get("OUT_CHANNELS", 1),
                                              channels=self.model_config_dict.D.get("CHANNELS", 64),
                                              upsample_method=self.model_config_dict.D.get("UPSAMPLE_METHOD", "bilinear"))
-
         else:
             raise NotImplementedError(f"Model type `{model_d_type}` is not implemented.")
+        if self.d_weights_path:
+            LOGGER.info(f"Loading state_dict from {self.d_weights_path} for fine-tuning...")
+            d_model = load_state_dict(self.d_weights_path, d_model, map_location=self.device)
 
         return d_model
 
@@ -389,7 +390,7 @@ class Trainer:
         self.d_lr_scheduler.load_state_dict(self.d_checkpoint["scheduler"])
         LOGGER.info(f"Resumed d model from epoch {self.start_epoch}")
 
-    def define_loss(self, loss_type: str) -> Any:
+    def get_loss(self, loss_type: str) -> Any:
         if loss_type not in ["l1_loss", "l2_loss", "feature_loss", "bce_with_logits_loss"]:
             raise NotImplementedError(
                 f"Loss type {loss_type} is not implemented. Only support [`l1_loss`, `l2_loss`, `feature_loss`, `bce_with_logits_loss`].")
@@ -400,9 +401,9 @@ class Trainer:
             criterion = nn.MSELoss()
         elif loss_type == "feature_loss":
             criterion = FeatureLoss(
-                self.feature_loss.get("ARCH_NAME", "vgg19"),
-                OmegaConf.to_container(self.feature_loss.get("LAYER_NAME_LIST", ["conv1_2", "conv2_2", "conv3_4", "conv4_4", "conv5_4"])),
-                self.feature_loss.get("NORMALIZE", True),
+                self.feature_loss_function.get("ARCH_NAME", "vgg19"),
+                OmegaConf.to_container(self.feature_loss_function.get("LAYER_WEIGHT_DICT", None)),
+                self.feature_loss_function.get("NORMALIZE", True),
             )
         else:
             criterion = nn.BCEWithLogitsLoss()
@@ -466,22 +467,20 @@ class Trainer:
             gaussian_kernel1 = gaussian_kernel1.to(device=self.device, non_blocking=True)
             gaussian_kernel2 = gaussian_kernel2.to(device=self.device, non_blocking=True)
             sinc_kernel = sic_kernel.to(device=self.device, non_blocking=True)
-            loss_pixel_weight = torch.tensor(self.pixel_loss_weight, device=self.device)
 
             # degradation transforms
             gt_usm, gt, lr = self.degradation_transforms(gt, gaussian_kernel1, gaussian_kernel2, sinc_kernel)
 
             # Initialize the generator gradient
-            self.g_model.zero_grad()
+            self.g_optimizer.zero_grad()
 
             # Mixed precision training
             with amp.autocast(enabled=self.device.type != "cpu"):
                 sr = self.g_model(lr)
-                loss = self.pixel_criterion(sr, gt_usm)
-                loss = torch.sum(torch.mul(loss_pixel_weight, loss))
+                pixel_loss = self.pixel_loss_weight * self.pixel_criterion(sr, gt_usm)
 
             # Backpropagation
-            self.scaler.scale(loss).backward()
+            self.scaler.scale(pixel_loss).backward()
             # update generator weights
             self.scaler.step(self.g_optimizer)
             self.scaler.update()
@@ -491,7 +490,7 @@ class Trainer:
 
             # Statistical loss value for terminal data output
             batch_size = lr.size(0)
-            self.pixel_losses.update(loss.item(), batch_size)
+            self.pixel_losses.update(pixel_loss.item(), batch_size)
 
             # measure elapsed time
             self.batch_time.update(time.time() - end)
@@ -500,7 +499,7 @@ class Trainer:
             # Record training log information
             if i % 100 == 0 or i == self.num_train_batch - 1:
                 # Writer Loss to file
-                self.tblogger.add_scalar("Train/Pixel_Loss", loss.item(), i + self.current_epoch * self.train_batch_size + 1)
+                self.tblogger.add_scalar("Train/Pixel_Loss", pixel_loss.item(), i + self.current_epoch * self.train_batch_size + 1)
                 self.progress.display(i + 1)
 
     def train_gan(self):
@@ -513,9 +512,6 @@ class Trainer:
             gaussian_kernel1 = gaussian_kernel1.to(device=self.device, non_blocking=True)
             gaussian_kernel2 = gaussian_kernel2.to(device=self.device, non_blocking=True)
             sinc_kernel = sic_kernel.to(device=self.device, non_blocking=True)
-            pixel_loss_weight = torch.tensor(self.pixel_loss_weight, device=self.device)
-            feature_loss_weight = torch.tensor(self.feature_loss_weight, device=self.device)
-            adv_loss_weight = torch.tensor(self.adv_loss_weight, device=self.device)
 
             # degradation transforms
             gt_usm, gt, lr = self.degradation_transforms(gt, gaussian_kernel1, gaussian_kernel2, sinc_kernel)
@@ -526,24 +522,22 @@ class Trainer:
             fake_label = torch.full([batch_size, 1, height, width], 0.0, dtype=torch.float, device=self.device)
 
             # Start training the generator model
+
+            # Initialize generator model gradients
+            self.g_optimizer.zero_grad()
+
             # During generator training, turn off discriminator backpropagation
             for d_parameters in self.d_model.parameters():
                 d_parameters.requires_grad = False
 
-            # Initialize generator model gradients
-            self.g_model.zero_grad()
-
             # Calculate the perceptual loss of the generator, mainly including pixel loss, feature loss and adversarial loss
+            # Mixed precision training
             with amp.autocast(enabled=self.device.type != "cpu"):
                 # Use the generator model to generate fake samples
                 sr = self.g_model(lr)
-                pixel_loss = self.pixel_criterion(sr, gt_usm)
+                pixel_loss = self.pixel_loss_weight * self.pixel_criterion(sr, gt_usm)
                 feature_loss = self.feature_criterion(sr, gt_usm)
-                sr_output = self.d_model(sr)
-                adv_loss = self.adv_criterion(sr_output, real_label)
-                pixel_loss = torch.sum(torch.mul(pixel_loss_weight, pixel_loss))
-                feature_loss = torch.sum(torch.mul(feature_loss_weight, feature_loss))
-                adv_loss = torch.sum(torch.mul(adv_loss_weight, adv_loss))
+                adv_loss = self.adv_loss_weight * self.adv_criterion(self.d_model(sr), real_label)
                 # Calculate the generator total loss value
                 g_loss = pixel_loss + feature_loss + adv_loss
             # Call the gradient scaling function in the mixed precision API to
@@ -555,12 +549,12 @@ class Trainer:
             # Finish training the generator model
 
             # Start training the discriminator model
+            # Initialize the discriminator model gradients
+            self.d_optimizer.zero_grad()
+
             # During discriminator model training, enable discriminator model backpropagation
             for d_parameters in self.d_model.parameters():
                 d_parameters.requires_grad = True
-
-            # Initialize the discriminator model gradients
-            self.d_model.zero_grad()
 
             # Calculate the classification score of the discriminator model for real samples
             with amp.autocast(enabled=self.device.type != "cpu"):
@@ -574,8 +568,8 @@ class Trainer:
             with amp.autocast(enabled=self.device.type != "cpu"):
                 sr_output = self.d_model(sr.detach().clone())
                 d_loss_sr = self.adv_criterion(sr_output, fake_label)
-                # Calculate the total discriminator loss value
-                d_loss = d_loss_sr + d_loss_gt
+            # Calculate the total discriminator loss value
+            d_loss = d_loss_gt + d_loss_sr
             # Call the gradient scaling function in the mixed precision API to
             # bp the gradient information of the fake samples
             self.scaler.scale(d_loss_sr).backward()
@@ -640,8 +634,13 @@ class Trainer:
             self.d_gt_probes = AverageMeter("D(GT)", ":6.3f")
             self.d_sr_probes = AverageMeter("D(SR)", ":6.3f")
             self.progress = ProgressMeter(self.num_train_batch,
-                                          [self.batch_time, self.data_time, self.pixel_losses, self.feature_losses, self.adv_losses,
-                                           self.d_gt_probes, self.d_sr_probes],
+                                          [self.batch_time,
+                                           self.data_time,
+                                           self.pixel_losses,
+                                           self.feature_losses,
+                                           self.adv_losses,
+                                           self.d_gt_probes,
+                                           self.d_sr_probes],
                                           prefix=f"Epoch: [{self.current_epoch}]")
 
     def train_one_epoch(self):

@@ -16,10 +16,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 from omegaconf import DictConfig
-
 from real_esrgan.utils.events import LOGGER
-from real_esrgan.utils.general import get_all_filenames
-from real_esrgan.utils.ops import get_window_position
+from real_esrgan.utils.ops import get_all_filenames, get_window_position
+
 from .super_resolution import SuperResolutionInferencer
 
 __all__ = [
