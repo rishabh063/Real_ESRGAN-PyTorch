@@ -522,7 +522,6 @@ class Trainer:
             fake_label = torch.full([batch_size, 1, height, width], 0.0, dtype=torch.float, device=self.device)
 
             # Start training the generator model
-
             # Initialize generator model gradients
             self.g_optimizer.zero_grad()
 

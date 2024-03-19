@@ -49,14 +49,14 @@ wget https://github.com/Lornatang/Real_ESRGAN-PyTorch/releases/download/0.1.0/re
 **Step 1: Finetune the realesrnet_x4 model.**
 
 ```shell
-python tools/train.py configs/Real_ESRGAN/realesrnet_x4_degradation-finetune.yaml
+python tools/train.py configs/Real_ESRGAN/realesrnet_x4-finetune.yaml
 # Results will be saved in `./results/train/realesrnet_x4_degradation-finetune`
 ```
 
 **Step 2: Finetune the realesrgan_x4 model.**
 
 ```shell
-python tools/train.py configs/Real_ESRGAN/realesrgan_x4_degradation-finetune.yaml
+python tools/train.py configs/Real_ESRGAN/realesrgan_x4-finetune.yaml
 # Results will be saved in `./results/train/realesrgan_x4_degradation-finetune`
 ```
 
@@ -65,14 +65,14 @@ python tools/train.py configs/Real_ESRGAN/realesrgan_x4_degradation-finetune.yam
 **Step 1: train the realesrnet_x4 model.**
 
 ```shell
-python tools/train.py configs/Real_ESRGAN/realesrnet_x4_degradation.yaml
+python tools/train.py configs/Real_ESRGAN/realesrnet_x4.yaml
 # Results will be saved in `./results/train/realesrnet_x4_degradation`
 ```
 
 **Step 2: train the realesrgan_x4 model.**
 
 ```shell
-python tools/train.py configs/Real_ESRGAN/realesrgan_x4_degradation.yaml
+python tools/train.py configs/Real_ESRGAN/realesrgan_x4.yaml
 # Results will be saved in `./results/train/realesrgan_x4_degradation`
 ```
 
@@ -135,7 +135,7 @@ TRAIN_GT_IMAGES_DIR: "data/custom/gt_sub_image_384x384"  # 178574 images
 **Step 2: Finetune the realesrnet_x4 model.**
 
 ```shell
-python tools/train.py configs/Real_ESRGAN/realesrnet_x4_degradation-finetune.yaml
+python tools/train.py configs/Real_ESRGAN/realesrnet_x4-finetune.yaml
 # Results will be saved in `./results/train/realesrnet_x4_degradation-finetune`
 ```
 
@@ -151,6 +151,6 @@ TRAIN_GT_IMAGES_DIR: "data/custom/gt_sub_image_384x384"  # 178574 images
 **Step 4: Finetune the realesrgan_x4 model.**
 
 ```shell
-python tools/train.py configs/Real_ESRGAN/realesrgan_x4_degradation-finetune.yaml
+python tools/train.py configs/Real_ESRGAN/realesrgan_x4-finetune.yaml
 # Results will be saved in `./results/train/realesrgan_x4_degradation-finetune`
 ```

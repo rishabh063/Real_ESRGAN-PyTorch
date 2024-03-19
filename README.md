@@ -49,7 +49,7 @@ pip install -e . -v
 ```shell
 # Download pretrained model weights to `./results/pretrained_models`
 wget https://github.com/Lornatang/Real_ESRGAN-PyTorch/releases/download/0.1.0/realesrgan_x4-df2k_degradation.pkl -O results/pretrained_models/realesrgan_x4-df2k_degradation.pkl
-python demo/inference_images.py configs/inference_images.yaml
+python demo/inference_images.py configs/inference/images.yaml
 # You will see
 # Model summary: Params: 16.70 M, GFLOPs: 73.43 B
 # SR image save to `demo/output/00003.jpg`
@@ -70,7 +70,7 @@ python demo/inference_images.py configs/inference_images.yaml
 wget https://github.com/Lornatang/Real_ESRGAN-PyTorch/releases/download/0.1.0/realesrgan_x4-df2k_degradation.pkl -O results/pretrained_models/realesrgan_x4-df2k_degradation.pkl
 # Download test demo video to `./demo`
 wget https://github.com/ckkelvinchan/RealBasicVSR/blob/master/data/demo_001.mp4 -O demo/demo_001.mp4
-python demo/inference_video.py configs/inference_video.yaml
+python demo/inference_video.py configs/inference/video.yaml
 # You will see
 # Model summary: Params: 16.70 M, GFLOPs: 73.43 B
 # Processing: 
